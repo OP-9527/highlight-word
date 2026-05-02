@@ -1,0 +1,40 @@
+{
+  "action": {
+    "default_icon": {
+      "16": "img/letter-e-16.png"
+    },
+    "default_title": "English Word Highlighter"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "css": ["styles.css"],
+      "js": ["content.js"],
+      "matches": ["\u003Call_urls>"],
+      "all_frames": true
+    }
+  ],
+  "description": "Highlight English words to help learn english. Features word translations, pronunciations, vocabulary management, cross-device sync.",
+  "icons": {
+    "48": "img/letter-e-48.png"
+  },
+  "host_permissions": [
+    "https://translate.googleapis.com/*",
+    "https://dictionary.cambridge.org/*",
+    "https://bing.com/*",
+    "https://www.bing.com/*"
+  ],
+  "manifest_version": 3,
+  "name": "English Word Highlighter",
+  "permissions": ["storage", "activeTab"],
+  "update_url": "https://clients2.google.com/service/update2/crx",
+  "version": "1.22",
+  "web_accessible_resources": [
+    {
+      "matches": ["\u003Call_urls>"],
+      "resources": ["styles.css", "img/*"]
+    }
+  ]
+}
