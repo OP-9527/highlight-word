@@ -1,23 +1,10 @@
-// Global variables
-let highlights = new Map();
-let knownWords = new Set();
-let activePopup = null;
-let popupHideTimer = null;
-let translationCache = new Map();
+// Central configuration keeps timing, storage, and UI limits visible during refactors.
 const CACHE_EXPIRATION_TIME = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 const MAX_TRANSLATION_CACHE_SIZE = 500;
-let currentTranslationController = null;
-let isAddingKnownWord = false; // 添加标志来跟踪是否正在添加已知单词
-// 新增：选择图标相关变量
-let selectionIcon = null;
-let selectionTimeout = null;
-let isMouseDown = false;
-let selectedText = '';
-let popupStylesText = null;
-let popupStylesPromise = null;
-let currentPopupRequestId = 0;
 const HIGHLIGHT_VISIBLE_ONLY = true;
 const POPUP_HIDE_DELAY_MS = 300;
+const POPUP_VIEWPORT_GAP_PX = 10;
+const POPUP_Z_INDEX = '9999';
 const HOVER_SAMPLE_MIN_INTERVAL_MS = 20;
 const HOVER_MOVE_MIN_DISTANCE_PX = 2;
 const MAX_POINT_CANDIDATE_ELEMENTS = 8;
@@ -26,12 +13,71 @@ const MAX_TEXT_NODES_PER_ELEMENT_CONTEXT = 80;
 const MAX_HIGHLIGHT_RANGES = 12000;
 const MAX_TEXT_NODES_PER_HIGHLIGHT_PASS = 4500;
 const FULL_HIGHLIGHT_REFRESH_DEBOUNCE_MS = 250;
+const MAX_INCREMENTAL_MUTATIONS = 1200;
+const STORAGE_KEY_PREFIX = 'knownWords_';
+// chrome.storage.sync has an 8KB per-item limit, so known words stay chunked.
+const CHUNK_SIZE = 200;
+const STORAGE_SAVE_BATCH_DELAY_MS = 50;
+const STORAGE_CLEAR_BATCH_SIZE = 100;
+const STORAGE_CLEAR_BATCH_DELAY_MS = 200;
+const STORAGE_MIGRATION_SETTLE_DELAY_MS = 1000;
+const KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS = 200;
+const ADD_KNOWN_WORD_SAVE_DELAY_MS = 100;
+const STORAGE_LOAD_RETRY_DELAY_MS = 300;
+const STORAGE_LOAD_MAX_RETRIES = 3;
+const WORD_COUNT_MISMATCH_WARNING_THRESHOLD = 10;
+const DEFAULT_POINT_HIT_FONT_SIZE_PX = 14;
+const POINT_HIT_MIN_INSET_X_PX = 1;
+const POINT_HIT_MAX_INSET_X_PX = 4;
+const POINT_HIT_WIDTH_INSET_RATIO = 0.08;
+const POINT_HIT_MIN_HEIGHT_PX = 10;
+const POINT_HIT_FONT_HEIGHT_RATIO = 1.05;
+const POINT_HIT_MIN_INSET_Y_PX = 2;
+const SELECTION_CHECK_DELAY_MS = 100;
+const SELECTION_DOUBLE_CLICK_DELAY_MS = 50;
+const SELECTION_ICON_SIZE_PX = 24;
+const SELECTION_ICON_IMAGE_SIZE_PX = 16;
+const SELECTION_ICON_OFFSET_X_PX = 5;
+const SELECTION_ICON_OFFSET_Y_PX = -12;
+const SELECTION_ICON_Z_INDEX = '100000';
+const SELECTION_ICON_FALLBACK_FONT_SIZE_PX = 12;
+const SELECTION_ICON_BACKGROUND = 'rgb(33, 150, 243)';
+
+// Runtime state
+let highlights = new Map();
+let knownWords = new Set();
+let activePopup = null;
+let popupHideTimer = null;
+let translationCache = new Map();
+let currentTranslationController = null;
+let isAddingKnownWord = false; // 添加标志来跟踪是否正在添加已知单词
+let selectionIcon = null;
+let selectionTimeout = null;
+let isMouseDown = false;
+let selectedText = '';
+let popupStylesText = null;
+let popupStylesPromise = null;
+let currentPopupRequestId = 0;
 const HIGH_CHURN_TEXT_CONTAINER_SELECTOR = [
   'video',
   'audio',
   'canvas',
   '[aria-live="polite"]',
   '[aria-live="assertive"]'
+].join(',');
+const STATIC_INTERACTIVE_TEXT_SELECTOR = [
+  'a[href]',
+  'button',
+  '[role="button"]',
+  '[role="link"]',
+  '[role="menuitem"]',
+  '[role="option"]',
+  '[role="tab"]',
+  'nav'
+].join(',');
+const TWITTER_EDITOR_PLACEHOLDER_SELECTOR = [
+  '.public-DraftEditorPlaceholder-root',
+  '.public-DraftEditorPlaceholder-inner'
 ].join(',');
 const YOUTUBE_HIGH_CHURN_TEXT_CONTAINER_SELECTOR = [
   'ytd-player',
@@ -95,16 +141,9 @@ const RICH_EDITOR_ROOT_SELECTOR = [
   '.slate-editor',
   '.prosemirror-editor'
 ].join(',');
-// Storage functions
-const STORAGE_KEY_PREFIX = 'knownWords_';
-const CHUNK_SIZE = 200; // chrome.storage.sync has 8KB limit per item, reduced from 1000 to stay within limits
-// Sidebar functionality
 let sidebarOpen = false;
-// Constants
 const ENGLISH_WORD_PATTERN = /\b[a-zA-Z]{2,}\b/g;
-// CSS Highlight API setup
 let unknownHL;
-// Performance monitoring
 let observer = null;
 let shadowRootObservers = new Map();
 let siteEnabled = false;
@@ -115,7 +154,6 @@ let highlightRefreshTimer = null;
 let highlightRefreshInProgress = false;
 let highlightRefreshQueued = false;
 let highlightRangeCount = 0;
-const MAX_INCREMENTAL_MUTATIONS = 1200;
 const VISIBILITY_ATTRIBUTE_NAMES = new Set([
   'class',
   'style',
@@ -226,8 +264,8 @@ function collectRootAndOpenShadowRoots(root) {
   const collected = [];
   const visited = new Set();
 
-  while (queue.length > 0) {
-    const current = queue.shift();
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    const current = queue[queueIndex];
     if (!current || visited.has(current)) continue;
     visited.add(current);
 
@@ -513,6 +551,16 @@ function isYouTubeHost() {
   );
 }
 
+function isTwitterHost() {
+  const host = window.location.hostname;
+  return (
+    host === 'x.com' ||
+    host.endsWith('.x.com') ||
+    host === 'twitter.com' ||
+    host.endsWith('.twitter.com')
+  );
+}
+
 function isTopLevelFrame() {
   try {
     return window.top === window;
@@ -569,10 +617,26 @@ function isYouTubeReadableDynamicTextContext(node) {
   return isYouTubeCaptionContext(node) || isYouTubeLiveChatTextContext(node);
 }
 
+function isTwitterStaticInteractiveTextContext(node) {
+  if (!isTwitterHost()) return false;
+  const element = getContextElement(node);
+  if (!element) return false;
+  return !!closestSafely(element, STATIC_INTERACTIVE_TEXT_SELECTOR);
+}
+
+function isTwitterEditorPlaceholderContext(node) {
+  if (!isTwitterHost()) return false;
+  const element = getContextElement(node);
+  if (!element) return false;
+  return !!closestSafely(element, TWITTER_EDITOR_PLACEHOLDER_SELECTOR);
+}
+
 function isInHighChurnTextContext(node) {
   const element = getContextElement(node);
   if (!element) return false;
 
+  if (isTwitterEditorPlaceholderContext(element)) return false;
+  if (isTwitterStaticInteractiveTextContext(element)) return false;
   if (isYouTubeReadableDynamicTextContext(element)) return false;
   if (closestSafely(element, HIGH_CHURN_TEXT_CONTAINER_SELECTOR)) return true;
   if (isYouTubeHost() && closestSafely(element, YOUTUBE_HIGH_CHURN_TEXT_CONTAINER_SELECTOR)) {
@@ -748,94 +812,121 @@ function queueMutationRecords(mutations) {
   schedulePendingMutationProcessing();
 }
 
-function processMutationsIncrementally(mutations) {
-  if (!highlightModeState.ready) {
-    scheduleHighlightRefresh();
-    return;
+function createMutationProcessingContext() {
+  return {
+    textNodesToRefresh: new Set(),
+    rootsToProcess: new Set(),
+    cleanedRanges: 0
+  };
+}
+
+function collectCharacterDataMutation(mutation, context) {
+  const target = mutation.target;
+  if (target && target.nodeType === Node.TEXT_NODE && !shouldIgnoreMutationNode(target)) {
+    context.textNodesToRefresh.add(target);
   }
+}
 
-  if (!hasActiveHighlightMode()) return;
+function collectAttributeMutation(mutation, context) {
+  const attributeName = mutation.attributeName || '';
+  if (!VISIBILITY_ATTRIBUTE_NAMES.has(attributeName)) return;
 
-  if (mutations.length > MAX_INCREMENTAL_MUTATIONS) {
-    scheduleHighlightRefresh();
-    return;
-  }
+  const target = mutation.target;
+  if (!target || target.nodeType !== Node.ELEMENT_NODE || shouldIgnoreMutationNode(target)) return;
 
-  const textNodesToRefresh = new Set();
-  const rootsToProcess = new Set();
-  const shouldAddHighlights = highlightModeState.mode !== 'none';
-  const wordsSet = highlightModeState.mode === 'selected' ? highlightModeState.wordsSet : null;
-  const visibilityCache = new WeakMap();
+  observeOpenShadowRoots(target);
+  context.cleanedRanges += clearHighlightsInSubtreeAndOpenShadowRoots(target);
+  context.rootsToProcess.add(target);
+}
 
-  let cleanedRanges = 0;
+function collectChildListMutation(mutation, context) {
+  mutation.removedNodes.forEach((node) => {
+    disconnectShadowRootObserversInSubtree(node);
+    if (shouldIgnoreMutationNode(node)) return;
+    context.cleanedRanges += clearHighlightsInSubtreeAndOpenShadowRoots(node);
+  });
+
+  mutation.addedNodes.forEach((node) => {
+    if (shouldIgnoreMutationNode(node)) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      context.textNodesToRefresh.add(node);
+      return;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      observeOpenShadowRoots(node);
+      context.rootsToProcess.add(node);
+    }
+  });
+}
+
+function collectIncrementalHighlightWork(mutations) {
+  const context = createMutationProcessingContext();
 
   for (const mutation of mutations) {
     if (!mutation) continue;
-
     if (mutation.type === 'characterData') {
-      const target = mutation.target;
-      if (target && target.nodeType === Node.TEXT_NODE && !shouldIgnoreMutationNode(target)) {
-        textNodesToRefresh.add(target);
-      }
-      continue;
-    }
-
-    if (mutation.type === 'attributes') {
-      const attributeName = mutation.attributeName || '';
-      if (!VISIBILITY_ATTRIBUTE_NAMES.has(attributeName)) continue;
-      const target = mutation.target;
-      if (!target || target.nodeType !== Node.ELEMENT_NODE || shouldIgnoreMutationNode(target))
-        continue;
-      observeOpenShadowRoots(target);
-      cleanedRanges += clearHighlightsInSubtreeAndOpenShadowRoots(target);
-      rootsToProcess.add(target);
-      continue;
-    }
-
-    if (mutation.type === 'childList') {
-      mutation.removedNodes.forEach((node) => {
-        disconnectShadowRootObserversInSubtree(node);
-        if (shouldIgnoreMutationNode(node)) return;
-        cleanedRanges += clearHighlightsInSubtreeAndOpenShadowRoots(node);
-      });
-
-      mutation.addedNodes.forEach((node) => {
-        if (shouldIgnoreMutationNode(node)) return;
-        if (node.nodeType === Node.TEXT_NODE) {
-          textNodesToRefresh.add(node);
-          return;
-        }
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          observeOpenShadowRoots(node);
-          rootsToProcess.add(node);
-        }
-      });
+      collectCharacterDataMutation(mutation, context);
+    } else if (mutation.type === 'attributes') {
+      collectAttributeMutation(mutation, context);
+    } else if (mutation.type === 'childList') {
+      collectChildListMutation(mutation, context);
     }
   }
 
-  textNodesToRefresh.forEach((textNode) => {
+  return context;
+}
+
+function refreshMutatedTextNodes(textNodes, wordsSet, visibilityCache) {
+  let cleanedRanges = 0;
+
+  textNodes.forEach((textNode) => {
     cleanedRanges += clearHighlightsForTextNode(textNode);
-    if (!shouldAddHighlights) return;
     if (!textNode || textNode.nodeType !== Node.TEXT_NODE || !textNode.isConnected) return;
     const parentElement = textNode.parentElement;
     if (!parentElement || !shouldProcessNode(parentElement) || isInWordPopup(parentElement)) return;
     highlightWordsInTextNode(textNode, wordsSet, visibilityCache);
   });
 
-  if (shouldAddHighlights) {
-    const rootList = Array.from(rootsToProcess);
-    const normalizedRoots = rootList.filter((root) => {
-      if (!root || root.nodeType !== Node.ELEMENT_NODE || !root.isConnected) return false;
-      return !rootList.some((other) => other !== root && other.contains && other.contains(root));
-    });
+  return cleanedRanges;
+}
 
-    normalizedRoots.forEach((root) => {
-      if (!root || root.nodeType !== Node.ELEMENT_NODE || !root.isConnected) return;
-      if (shouldIgnoreMutationNode(root)) return;
-      observeOpenShadowRoots(root);
-      processRootAndOpenShadowRoots(root, wordsSet, { visibilityCache });
-    });
+function getConnectedTopLevelRoots(rootsToProcess) {
+  const rootList = Array.from(rootsToProcess).filter((root) => {
+    return root && root.nodeType === Node.ELEMENT_NODE && root.isConnected;
+  });
+
+  return rootList.filter((root) => {
+    return !rootList.some((other) => other !== root && other.contains && other.contains(root));
+  });
+}
+
+function refreshMutatedRoots(rootsToProcess, wordsSet, visibilityCache) {
+  getConnectedTopLevelRoots(rootsToProcess).forEach((root) => {
+    if (shouldIgnoreMutationNode(root)) return;
+    observeOpenShadowRoots(root);
+    processRootAndOpenShadowRoots(root, wordsSet, { visibilityCache });
+  });
+}
+
+function shouldUseFullHighlightRefresh(mutations) {
+  return !highlightModeState.ready || mutations.length > MAX_INCREMENTAL_MUTATIONS;
+}
+
+// Mutation work is split into collect/apply phases so the observer path stays cheap.
+function processMutationsIncrementally(mutations) {
+  if (shouldUseFullHighlightRefresh(mutations)) {
+    scheduleHighlightRefresh();
+    return;
   }
+
+  if (!hasActiveHighlightMode()) return;
+
+  const wordsSet = highlightModeState.mode === 'selected' ? highlightModeState.wordsSet : null;
+  const visibilityCache = new WeakMap();
+  const work = collectIncrementalHighlightWork(mutations);
+
+  work.cleanedRanges += refreshMutatedTextNodes(work.textNodesToRefresh, wordsSet, visibilityCache);
+  refreshMutatedRoots(work.rootsToProcess, wordsSet, visibilityCache);
 }
 
 function setupObserver() {
@@ -967,6 +1058,10 @@ function isInRichEditorContext(node) {
   return false;
 }
 
+function shouldSkipRichEditorContext(node) {
+  return isInRichEditorContext(node) && !isTwitterEditorPlaceholderContext(node);
+}
+
 function shouldProcessNode(node) {
   return (
     node.nodeType === Node.ELEMENT_NODE &&
@@ -974,7 +1069,7 @@ function shouldProcessNode(node) {
     !node.isContentEditable &&
     !isExtensionUiNode(node) &&
     !isPartOfSidebar(node) &&
-    !isInRichEditorContext(node) &&
+    !shouldSkipRichEditorContext(node) &&
     !isInHighChurnTextContext(node)
   );
 }
@@ -1051,6 +1146,8 @@ function isElementVisibleForHighlight(element) {
 
   let current = element;
   while (current && current.nodeType === Node.ELEMENT_NODE) {
+    const style = window.getComputedStyle ? window.getComputedStyle(current) : null;
+
     if (typeof current.checkVisibility === 'function') {
       try {
         if (
@@ -1059,16 +1156,16 @@ function isElementVisibleForHighlight(element) {
             checkVisibilityCSS: true
           })
         ) {
-          return false;
+          if (!style || style.display !== 'contents') {
+            return false;
+          }
         }
       } catch (error) {
         // Fall back to computed style checks.
       }
     }
 
-    if (window.getComputedStyle) {
-      const style = window.getComputedStyle(current);
-      if (!style) return false;
+    if (style) {
       if (style.display === 'none') return false;
       if (style.visibility === 'hidden' || style.visibility === 'collapse') return false;
     }
@@ -1188,7 +1285,7 @@ function highlightWordsInTextNode(textNode, wordsSet = null, visibilityCache = n
   if (highlightRangeCount >= MAX_HIGHLIGHT_RANGES) return 0;
   const parentElement = textNode.parentElement;
   if (isInWordPopup(textNode.parentNode)) return 0;
-  if (isInRichEditorContext(parentElement)) return 0;
+  if (shouldSkipRichEditorContext(parentElement)) return 0;
   if (isInHighChurnTextContext(parentElement)) return 0;
   if (HIGHLIGHT_VISIBLE_ONLY && !isElementVisibleForHighlightCached(parentElement, visibilityCache))
     return 0;
@@ -1620,135 +1717,162 @@ function extractPronunciation(doc) {
 }
 
 // Add this new function to update the popup content
-function updatePopupContent(popup, googleTranslation, cambridgeTranslation, bingdictTranslation) {
-  if (!popup || activePopup !== popup) return;
+function getPopupContentElements(popupRoot) {
+  return {
+    googleContentElement: popupRoot.querySelector('.hlw-google-translation'),
+    bingdictContentElement: popupRoot.querySelector('.hlw-bingdict-translation-container'),
+    translationRow: popupRoot.querySelector('.hlw-translation-row'),
+    phoneticDiv: popupRoot.querySelector('.hlw-word-phonetic'),
+    phoneticElementUK: popupRoot.querySelector('.hlw-word-phonetic-uk'),
+    phoneticElementUS: popupRoot.querySelector('.hlw-word-phonetic-us'),
+    formsContainer: popupRoot.querySelector('.hlw-word-forms-container'),
+    popupContainer: popupRoot.querySelector('.hlw-word-popup')
+  };
+}
 
-  const popupRoot = getPopupRoot(popup);
-  if (!popupRoot) return;
+function resetPopupContentElements(elements, googleTranslation) {
+  elements.googleContentElement.textContent = googleTranslation || '';
+  elements.phoneticDiv.style.display = 'none';
+  [elements.phoneticElementUK, elements.phoneticElementUS].forEach((element) => {
+    element.style.display = 'none';
+    element.onclick = null;
+    element.style.cursor = 'default';
+  });
+  elements.formsContainer.innerHTML = '';
+  if (elements.bingdictContentElement) {
+    elements.bingdictContentElement.innerHTML = '';
+    elements.bingdictContentElement.style.display = 'none';
+  }
+}
 
-  const googleContentElement = popupRoot.querySelector('.hlw-google-translation');
-  const bingdictContentElement = popupRoot.querySelector('.hlw-bingdict-translation-container');
-  const translationRow = popupRoot.querySelector('.hlw-translation-row');
-  const phoneticDiv = popupRoot.querySelector('.hlw-word-phonetic');
-  const phoneticElementUK = popupRoot.querySelector('.hlw-word-phonetic-uk');
-  const phoneticElementUS = popupRoot.querySelector('.hlw-word-phonetic-us');
-  const formsContainer = popupRoot.querySelector('.hlw-word-forms-container');
+function bindPronunciationFallback(element, cambridgeTranslation, pronunciation, fallbackLang) {
+  if (!pronunciation) return;
+  element.onclick = () => {
+    const audio = new Audio(pronunciation.url);
+    audio.play().catch(() => {
+      pronounceWord(cambridgeTranslation.word, fallbackLang);
+    });
+  };
+  element.style.cursor = 'pointer';
+}
 
-  if (
-    !googleContentElement ||
-    !phoneticDiv ||
-    !phoneticElementUK ||
-    !phoneticElementUS ||
-    !formsContainer
-  ) {
-    return;
+function renderPopupPhonetic(
+  element,
+  label,
+  bingdictText,
+  cambridgeTranslation,
+  cambridgeLang,
+  fallbackLang
+) {
+  if (!bingdictText || bingdictText.length <= 3) return false;
+
+  element.textContent = `${label} ${formatPhonetic(bingdictText)}`;
+  element.style.display = 'inline-flex';
+
+  const cambridgeData = cambridgeTranslation || {};
+  const pronunciation = (cambridgeData.pronunciation || []).find(
+    (pron) => pron.lang === cambridgeLang
+  );
+  bindPronunciationFallback(element, cambridgeData, pronunciation, fallbackLang);
+  return true;
+}
+
+function createWordFormElement(className, label, value) {
+  const formsElement = document.createElement('span');
+  formsElement.className = `hlw-word-forms ${className}`;
+  formsElement.textContent = `${label}: ${value}`;
+  return formsElement;
+}
+
+function renderWordForms(formsContainer, bingdictTranslation) {
+  const forms = [
+    ['hlw-word-forms-plural', '复数形式', bingdictTranslation.plural || ''],
+    [
+      'hlw-word-forms-present-participle',
+      '现在分词',
+      bingdictTranslation.presentParticiple || ''
+    ],
+    ['hlw-word-forms-past-tense', '过去分词', bingdictTranslation.pastTense || '']
+  ];
+
+  forms.forEach(([className, label, value]) => {
+    if (value) formsContainer.appendChild(createWordFormElement(className, label, value));
+  });
+}
+
+function renderBingdictPopupContent(elements, bingdictTranslation, cambridgeTranslation) {
+  const bingDictDefinition = generateDefinitionFromJson(bingdictTranslation);
+  if (bingDictDefinition && elements.bingdictContentElement) {
+    elements.bingdictContentElement.innerHTML = bingDictDefinition;
+    elements.bingdictContentElement.style.display = 'block';
   }
 
-  googleContentElement.textContent = googleTranslation || '';
-  phoneticDiv.style.display = 'none';
-  phoneticElementUK.style.display = 'none';
-  phoneticElementUS.style.display = 'none';
-  phoneticElementUK.onclick = null;
-  phoneticElementUS.onclick = null;
-  phoneticElementUK.style.cursor = 'default';
-  phoneticElementUS.style.cursor = 'default';
-  formsContainer.innerHTML = '';
-  if (bingdictContentElement) {
-    bingdictContentElement.innerHTML = '';
-    bingdictContentElement.style.display = 'none';
+  const pronunciation = bingdictTranslation.pronunciation || {};
+  const hasUkPhonetic = renderPopupPhonetic(
+    elements.phoneticElementUK,
+    'UK',
+    pronunciation.uk,
+    cambridgeTranslation,
+    'uk',
+    'en-GB'
+  );
+  const hasUsPhonetic = renderPopupPhonetic(
+    elements.phoneticElementUS,
+    'US',
+    pronunciation.us,
+    cambridgeTranslation,
+    'us',
+    'en-US'
+  );
+  if (hasUkPhonetic || hasUsPhonetic) {
+    elements.phoneticDiv.style.display = 'block';
   }
 
-  if (bingdictTranslation) {
-    const bingDictDefinition = generateDefinitionFromJson(bingdictTranslation);
+  renderWordForms(elements.formsContainer, bingdictTranslation);
+}
 
-    if (bingDictDefinition && bingdictContentElement) {
-      bingdictContentElement.innerHTML = bingDictDefinition;
-      bingdictContentElement.style.display = 'block';
-    }
-
-    if (bingdictTranslation.pronunciation.uk && bingdictTranslation.pronunciation.uk.length > 3) {
-      phoneticElementUK.textContent = `UK ${formatPhonetic(bingdictTranslation.pronunciation.uk)}`;
-      phoneticElementUK.style.display = 'inline-flex';
-      phoneticDiv.style.display = 'block';
-
-      if (cambridgeTranslation.pronunciation && cambridgeTranslation.pronunciation.length > 0) {
-        const ukPronunciation = cambridgeTranslation.pronunciation.find(
-          (pron) => pron.lang === 'uk'
-        );
-        if (ukPronunciation) {
-          phoneticElementUK.onclick = () => {
-            const audio = new Audio(ukPronunciation.url);
-            audio.play().catch(() => {
-              pronounceWord(cambridgeTranslation.word, 'en-GB');
-            });
-          };
-          phoneticElementUK.style.cursor = 'pointer';
-        }
-      }
-    }
-
-    if (bingdictTranslation.pronunciation.us && bingdictTranslation.pronunciation.us.length > 3) {
-      phoneticElementUS.textContent = `US ${formatPhonetic(bingdictTranslation.pronunciation.us)}`;
-      phoneticElementUS.style.display = 'inline-flex';
-      phoneticDiv.style.display = 'block';
-
-      if (cambridgeTranslation.pronunciation && cambridgeTranslation.pronunciation.length > 0) {
-        const usPronunciation = cambridgeTranslation.pronunciation.find(
-          (pron) => pron.lang === 'us'
-        );
-        if (usPronunciation) {
-          phoneticElementUS.onclick = () => {
-            const audio = new Audio(usPronunciation.url);
-            audio.play().catch(() => {
-              pronounceWord(cambridgeTranslation.word, 'en-US');
-            });
-          };
-          phoneticElementUS.style.cursor = 'pointer';
-        }
-      }
-    }
-
-    const plural = bingdictTranslation.plural || '';
-    const presentParticiple = bingdictTranslation.presentParticiple || '';
-    const pastTense = bingdictTranslation.pastTense || '';
-
-    if (plural) {
-      const formsElement = document.createElement('span');
-      formsElement.className = 'hlw-word-forms hlw-word-forms-plural';
-      formsElement.textContent = '复数形式: ' + plural;
-      formsContainer.appendChild(formsElement);
-    }
-
-    if (presentParticiple) {
-      const formsElement = document.createElement('span');
-      formsElement.className = 'hlw-word-forms hlw-word-forms-present-participle';
-      formsElement.textContent = '现在分词: ' + presentParticiple;
-      formsContainer.appendChild(formsElement);
-    }
-
-    if (pastTense) {
-      const formsElement = document.createElement('span');
-      formsElement.className = 'hlw-word-forms hlw-word-forms-past-tense';
-      formsElement.textContent = '过去分词: ' + pastTense;
-      formsContainer.appendChild(formsElement);
-    }
-  }
-
-  const hasPhonetic = phoneticDiv.style.display !== 'none';
+function updatePopupLayoutState(popup, elements, googleTranslation) {
+  const hasPhonetic = elements.phoneticDiv.style.display !== 'none';
   const hasTranslation = !!(googleTranslation && googleTranslation.trim());
-  if (translationRow) {
-    translationRow.style.display = !hasTranslation && !hasPhonetic ? 'none' : '';
+  if (elements.translationRow) {
+    elements.translationRow.style.display = !hasTranslation && !hasPhonetic ? 'none' : '';
   }
-  const popupContainer = popupRoot.querySelector('.hlw-word-popup');
-  if (popupContainer) {
-    popupContainer.classList.toggle('hlw-no-phonetic', !hasPhonetic);
-    popupContainer.classList.toggle('hlw-no-translation-row', !hasTranslation && !hasPhonetic);
+  if (elements.popupContainer) {
+    elements.popupContainer.classList.toggle('hlw-no-phonetic', !hasPhonetic);
+    elements.popupContainer.classList.toggle(
+      'hlw-no-translation-row',
+      !hasTranslation && !hasPhonetic
+    );
   }
   requestAnimationFrame(() => {
     if (activePopup === popup && popup.isConnected) {
       positionPopup(popup);
     }
   });
+}
+
+function updatePopupContent(popup, googleTranslation, cambridgeTranslation, bingdictTranslation) {
+  if (!popup || activePopup !== popup) return;
+
+  const popupRoot = getPopupRoot(popup);
+  if (!popupRoot) return;
+
+  const elements = getPopupContentElements(popupRoot);
+  if (
+    !elements.googleContentElement ||
+    !elements.phoneticDiv ||
+    !elements.phoneticElementUK ||
+    !elements.phoneticElementUS ||
+    !elements.formsContainer
+  ) {
+    return;
+  }
+
+  resetPopupContentElements(elements, googleTranslation);
+  if (bingdictTranslation) {
+    renderBingdictPopupContent(elements, bingdictTranslation, cambridgeTranslation);
+  }
+  updatePopupLayoutState(popup, elements, googleTranslation);
 }
 
 function formatPhonetic(text) {
@@ -1830,7 +1954,7 @@ function isPointInRange(range, x, y, pointRange = null, pointElement = null) {
       return false;
     }
   }
-  let fontSize = 14;
+  let fontSize = DEFAULT_POINT_HIT_FONT_SIZE_PX;
   if (parentElement && window.getComputedStyle) {
     const style = window.getComputedStyle(parentElement);
     const parsedFontSize = parseFloat(style.fontSize);
@@ -1839,10 +1963,16 @@ function isPointInRange(range, x, y, pointRange = null, pointElement = null) {
     }
   }
   const isInsideRect = (rect) => {
-    const insetX = Math.min(4, Math.max(1, rect.width * 0.08));
-    const targetHeight = Math.min(rect.height, Math.max(fontSize * 1.05, 10));
+    const insetX = Math.min(
+      POINT_HIT_MAX_INSET_X_PX,
+      Math.max(POINT_HIT_MIN_INSET_X_PX, rect.width * POINT_HIT_WIDTH_INSET_RATIO)
+    );
+    const targetHeight = Math.min(
+      rect.height,
+      Math.max(fontSize * POINT_HIT_FONT_HEIGHT_RATIO, POINT_HIT_MIN_HEIGHT_PX)
+    );
     const extraY = Math.max(0, (rect.height - targetHeight) / 2);
-    const insetY = Math.max(2, extraY);
+    const insetY = Math.max(POINT_HIT_MIN_INSET_Y_PX, extraY);
     const left = rect.left + insetX;
     const right = rect.right - insetX;
     const top = rect.top + insetY;
@@ -1906,7 +2036,7 @@ function findWordAtRange(range, x, y, pointElement = null) {
     for (const entry of entries) {
       const highlightRange = entry.range;
       if (!highlightRange || highlightRange.startContainer !== startContainer) continue;
-      if (isInRichEditorContext(highlightRange.startContainer)) continue;
+      if (shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
       if (hasCharacterOffset) {
         if (startOffset < highlightRange.startOffset || startOffset > highlightRange.endOffset)
           continue;
@@ -1921,7 +2051,7 @@ function findWordAtRange(range, x, y, pointElement = null) {
   if (!hasPoint && entries.length > 0) {
     for (const entry of entries) {
       const highlightRange = entry.range;
-      if (!highlightRange || isInRichEditorContext(highlightRange.startContainer)) continue;
+      if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
       if (
         range.compareBoundaryPoints(Range.START_TO_START, highlightRange) >= 0 &&
         range.compareBoundaryPoints(Range.END_TO_END, highlightRange) <= 0
@@ -1944,9 +2074,9 @@ function forEachTextNodeInElementContext(
   const visitedNodes = new Set();
   let scannedTextNodes = 0;
 
-  while (queue.length > 0) {
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
     if (scannedTextNodes >= maxTextNodes) return false;
-    const node = queue.shift();
+    const node = queue[queueIndex];
     if (!node || visitedNodes.has(node)) continue;
     visitedNodes.add(node);
 
@@ -2013,7 +2143,7 @@ function findWordFromElementContext(pointElement, x, y) {
 
       for (const entry of entries) {
         const highlightRange = entry.range;
-        if (!highlightRange || isInRichEditorContext(highlightRange.startContainer)) continue;
+        if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
         if (isPointInRange(highlightRange, x, y, null, pointElement)) {
           match = { word: entry.word, rect: highlightRange.getBoundingClientRect() };
           return true;
@@ -2059,7 +2189,7 @@ function findWordAtPoint(x, y, existingPointContext = null, existingPointElement
   const entries = getTextNodeHighlightEntries(textNode);
   for (const entry of entries) {
     const highlightRange = entry.range;
-    if (!highlightRange || isInRichEditorContext(highlightRange.startContainer)) continue;
+    if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
     if (isPointInRange(highlightRange, x, y, pointRange, pointContext.element)) {
       return { word: entry.word, rect: highlightRange.getBoundingClientRect() };
     }
@@ -2090,20 +2220,12 @@ function getPopupStylesText() {
   return popupStylesPromise;
 }
 
-function createPopup(word, rect, hideKnownButton = false) {
-  const popup = document.createElement('div');
-  popup.className = 'hlw-word-popup-host';
-  popup.dataset.word = word;
-  popup.dataset.hlwHidden = 'true';
-  setPopupAnchor(popup, rect);
-
-  const shadow = popup.attachShadow({ mode: 'open' });
-  const style = document.createElement('style');
-  const popupShadowOverrides = `
+function getPopupShadowOverrides() {
+  return `
 :host {
   all: initial;
   position: fixed;
-  z-index: 9999;
+  z-index: ${POPUP_Z_INDEX};
   display: block;
 }
 :host([data-hlw-hidden="true"]) {
@@ -2114,9 +2236,9 @@ function createPopup(word, rect, hideKnownButton = false) {
   position: relative !important;
 }
   `.trim();
-  style.textContent = popupShadowOverrides;
-  shadow.appendChild(style);
+}
 
+function createPopupBody(word, hideKnownButton) {
   const popupBody = document.createElement('div');
   popupBody.className = 'hlw-root hlw-word-popup';
   if (hideKnownButton) {
@@ -2125,7 +2247,10 @@ function createPopup(word, rect, hideKnownButton = false) {
   popupBody.innerHTML = `
     <div class="hlw-word-header">
       <h2 class="hlw-word-h2"></h2>
-      <button class="hlw-word-known" ${hideKnownButton ? 'style="display: none;"' : ''}>&#x2713;</button>
+      <button
+        class="hlw-word-known"
+        ${hideKnownButton ? 'style="display: none;"' : ''}
+      >&#x2713;</button>
     </div>
 
     <div class="hlw-word-content">
@@ -2144,15 +2269,15 @@ function createPopup(word, rect, hideKnownButton = false) {
       <div class="hlw-word-forms-container"></div>
     </div>
   `;
-  shadow.appendChild(popupBody);
-
-  const titleElement = shadow.querySelector('.hlw-word-h2');
+  const titleElement = popupBody.querySelector('.hlw-word-h2');
   titleElement.textContent = word;
+  return popupBody;
+}
 
-  positionPopup(popup, rect, { reveal: false });
+function bindPopupEvents(popup, shadow, word, hideKnownButton) {
+  const titleElement = shadow.querySelector('.hlw-word-h2');
   titleElement.addEventListener('click', () => pronounceWord(word, 'en-US'));
 
-  // 只有当按钮可见时才添加点击事件
   const knownButton = shadow.querySelector('.hlw-word-known');
   if (knownButton && !hideKnownButton) {
     knownButton.addEventListener('click', () => addToKnownWords(word));
@@ -2167,7 +2292,9 @@ function createPopup(word, rect, hideKnownButton = false) {
     popup.dataset.mouseOver = 'false';
     scheduleHidePopup();
   });
+}
 
+function injectPopupStyles(popup, style, popupShadowOverrides) {
   getPopupStylesText().then((text) => {
     if (activePopup !== popup || !popup.isConnected) return;
     style.textContent = `${text}\n${popupShadowOverrides}`;
@@ -2176,6 +2303,25 @@ function createPopup(word, rect, hideKnownButton = false) {
       positionPopup(popup, null, { reveal: true });
     });
   });
+}
+
+function createPopup(word, rect, hideKnownButton = false) {
+  const popup = document.createElement('div');
+  popup.className = 'hlw-word-popup-host';
+  popup.dataset.word = word;
+  popup.dataset.hlwHidden = 'true';
+  setPopupAnchor(popup, rect);
+
+  const shadow = popup.attachShadow({ mode: 'open' });
+  const style = document.createElement('style');
+  const popupShadowOverrides = getPopupShadowOverrides();
+  style.textContent = popupShadowOverrides;
+  shadow.appendChild(style);
+  shadow.appendChild(createPopupBody(word, hideKnownButton));
+
+  positionPopup(popup, rect, { reveal: false });
+  bindPopupEvents(popup, shadow, word, hideKnownButton);
+  injectPopupStyles(popup, style, popupShadowOverrides);
 
   return popup;
 }
@@ -2207,7 +2353,7 @@ function positionPopup(popup, rect = null, options = {}) {
   }
   const viewportHeight = window.innerHeight;
   const viewportWidth = window.innerWidth;
-  const gap = 10;
+  const gap = POPUP_VIEWPORT_GAP_PX;
 
   let top = anchor.bottom + gap;
   let left = anchor.left;
@@ -2231,7 +2377,7 @@ function positionPopup(popup, rect = null, options = {}) {
 
   popup.style.left = `${left}px`;
   popup.style.top = `${top}px`;
-  popup.style.zIndex = '9999';
+  popup.style.zIndex = POPUP_Z_INDEX;
 
   if (options.reveal && popup.dataset.hlwHidden === 'true') {
     delete popup.dataset.hlwHidden;
@@ -2344,8 +2490,8 @@ function addToKnownWords(word) {
       // 清除标志
       setTimeout(() => {
         isAddingKnownWord = false;
-      }, 200);
-    }, 100);
+      }, KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS);
+    }, ADD_KNOWN_WORD_SAVE_DELAY_MS);
   }
 }
 
@@ -2359,28 +2505,94 @@ function getKnownWordsChunkIndex(key) {
   return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
+// This block owns the sync chunk contract used across extension versions.
+function getKnownWordStorageKeys(items, predicate = () => true) {
+  return Object.keys(items || {}).filter((key) => {
+    const chunkIndex = getKnownWordsChunkIndex(key);
+    return chunkIndex !== null && predicate(chunkIndex, key);
+  });
+}
+
+function getKnownWordCleanupKeys(items) {
+  return Object.keys(items || {}).filter(
+    (key) => key.startsWith(STORAGE_KEY_PREFIX) || key === 'knownWordsCount'
+  );
+}
+
+function chunkKnownWords(words) {
+  const chunks = [];
+  for (let i = 0; i < words.length; i += CHUNK_SIZE) {
+    chunks.push(words.slice(i, i + CHUNK_SIZE));
+  }
+  return chunks;
+}
+
+function setKnownWordsMetadata(wordCount, callback) {
+  chrome.storage.sync.set(
+    {
+      knownWordsCount: wordCount,
+      knownWordsUpdated: Date.now()
+    },
+    callback
+  );
+}
+
+function writeKnownWordChunks(chunks, wordCount, onComplete) {
+  const saveBatch = (index) => {
+    if (index >= chunks.length) {
+      onComplete();
+      return;
+    }
+
+    chrome.storage.sync.set({ [`${STORAGE_KEY_PREFIX}${index}`]: chunks[index] }, () => {
+      if (chrome.runtime.lastError) {
+        const errorMsg = chrome.runtime.lastError.message;
+        if (errorMsg.includes('quota') || errorMsg.includes('QUOTA_BYTES')) {
+          console.error(
+            `Storage quota exceeded. Word count: ${wordCount}. ` +
+              'Please export and reduce word list.'
+          );
+        } else {
+          console.error(`Error saving known words: ${errorMsg}`);
+        }
+        return;
+      }
+      setTimeout(() => saveBatch(index + 1), STORAGE_SAVE_BATCH_DELAY_MS);
+    });
+  };
+
+  saveBatch(0);
+}
+
+function removeKeysThen(keysToRemove, callback) {
+  if (!keysToRemove || keysToRemove.length === 0) {
+    callback();
+    return;
+  }
+
+  chrome.storage.sync.remove(keysToRemove, () => {
+    if (chrome.runtime.lastError) {
+      console.error(`Error removing known word keys: ${chrome.runtime.lastError.message}`);
+      return;
+    }
+    callback();
+  });
+}
+
 function saveKnownWords() {
   try {
     const knownWordsArray = Array.from(knownWords);
 
-    // 如果没有已知单词，清除所有存储
     if (knownWordsArray.length === 0) {
       chrome.storage.sync.get(null, (items) => {
-        const keysToRemove = Object.keys(items).filter(
-          (key) => key.startsWith(STORAGE_KEY_PREFIX) || key === 'knownWordsCount'
-        );
-        chrome.storage.sync.remove(keysToRemove, () => {
+        removeKeysThen(getKnownWordCleanupKeys(items), () => {
           chrome.storage.sync.set({ knownWordsUpdated: Date.now() });
         });
       });
       return;
     }
 
-    // Split the array into chunks
-    const chunks = [];
-    for (let i = 0; i < knownWordsArray.length; i += CHUNK_SIZE) {
-      chunks.push(knownWordsArray.slice(i, i + CHUNK_SIZE));
-    }
+    const chunks = chunkKnownWords(knownWordsArray);
 
     chrome.storage.sync.get(null, (items) => {
       if (chrome.runtime.lastError) {
@@ -2390,68 +2602,56 @@ function saveKnownWords() {
         return;
       }
 
-      const staleChunkKeys = Object.keys(items).filter((key) => {
-        const chunkIndex = getKnownWordsChunkIndex(key);
-        return chunkIndex !== null && chunkIndex >= chunks.length;
+      const staleChunkKeys = getKnownWordStorageKeys(items, (chunkIndex) => {
+        return chunkIndex >= chunks.length;
       });
 
       const finishSave = () => {
-        const setMetadata = () => {
-          chrome.storage.sync.set({
-            knownWordsCount: knownWordsArray.length,
-            knownWordsUpdated: Date.now()
-          });
-        };
-
-        if (staleChunkKeys.length === 0) {
-          setMetadata();
-          return;
-        }
-
-        chrome.storage.sync.remove(staleChunkKeys, () => {
-          if (chrome.runtime.lastError) {
-            console.error(
-              `Error removing stale known word chunks: ${chrome.runtime.lastError.message}`
-            );
-            return;
-          }
-          setMetadata();
-        });
+        removeKeysThen(staleChunkKeys, () => setKnownWordsMetadata(knownWordsArray.length));
       };
 
-      // Save chunks in batches
-      const saveBatch = (index) => {
-        if (index >= chunks.length) {
-          finishSave();
-          return;
-        }
-
-        const dataToSave = {
-          [`${STORAGE_KEY_PREFIX}${index}`]: chunks[index]
-        };
-
-        chrome.storage.sync.set(dataToSave, () => {
-          if (chrome.runtime.lastError) {
-            const errorMsg = chrome.runtime.lastError.message;
-            // Only show error for quota issues
-            if (errorMsg.includes('quota') || errorMsg.includes('QUOTA_BYTES')) {
-              console.error(
-                `Storage quota exceeded. Word count: ${knownWordsArray.length}. Please export and reduce word list.`
-              );
-            } else {
-              console.error(`Error saving known words: ${errorMsg}`);
-            }
-            return; // Stop trying to save more chunks if there's an error
-          }
-          setTimeout(() => saveBatch(index + 1), 50);
-        });
-      };
-
-      saveBatch(0);
+      writeKnownWordChunks(chunks, knownWordsArray.length, finishSave);
     });
   } catch (error) {
     console.error('Error saving known words:', error);
   }
+}
+
+function getSortedKnownWordChunkKeys(items) {
+  return getKnownWordStorageKeys(items).sort((a, b) => {
+    return getKnownWordsChunkIndex(a) - getKnownWordsChunkIndex(b);
+  });
+}
+
+function readKnownWordsFromChunks(result, chunkKeys, totalWords) {
+  const loadedWords = [];
+  chunkKeys.forEach((key) => {
+    const chunk = result[key] || [];
+    loadedWords.push(...chunk);
+  });
+  if (totalWords > 0 && loadedWords.length > totalWords) {
+    loadedWords.length = totalWords;
+  }
+  return loadedWords;
+}
+
+function reconcileLoadedKnownWordsCount(loadedWords, totalWords, chunkKeys, expectedChunks, retry) {
+  const mismatch = Math.abs(loadedWords.length - totalWords);
+  if (mismatch <= WORD_COUNT_MISMATCH_WARNING_THRESHOLD) return false;
+
+  if (chunkKeys.length < expectedChunks && retry.retryCount < STORAGE_LOAD_MAX_RETRIES) {
+    setTimeout(
+      () => loadKnownWords(retry.callback, retry.retryCount + 1),
+      STORAGE_LOAD_RETRY_DELAY_MS
+    );
+    return true;
+  }
+
+  if (loadedWords.length <= totalWords) {
+    console.warn(`Word count mismatch! Expected: ${totalWords}, Loaded: ${loadedWords.length}`);
+  }
+  setKnownWordsMetadata(loadedWords.length);
+  return false;
 }
 
 function loadKnownWords(callback, retryCount = 0) {
@@ -2467,12 +2667,7 @@ function loadKnownWords(callback, retryCount = 0) {
 
       const expectedChunks = totalWords > 0 ? Math.ceil(totalWords / CHUNK_SIZE) : 0;
 
-      // Find only the chunks that belong to the recorded word count.
-      const allChunkKeys = Object.keys(result)
-        .filter((key) => getKnownWordsChunkIndex(key) !== null)
-        .sort((a, b) => {
-          return getKnownWordsChunkIndex(a) - getKnownWordsChunkIndex(b);
-        });
+      const allChunkKeys = getSortedKnownWordChunkKeys(result);
       const chunkKeys = allChunkKeys.filter((key) => getKnownWordsChunkIndex(key) < expectedChunks);
       const staleChunkKeys = allChunkKeys.filter(
         (key) => getKnownWordsChunkIndex(key) >= expectedChunks
@@ -2481,37 +2676,15 @@ function loadKnownWords(callback, retryCount = 0) {
         chrome.storage.sync.remove(staleChunkKeys);
       }
 
-      const loadedWords = [];
-      chunkKeys.forEach((key, index) => {
-        const chunk = result[key] || [];
-        loadedWords.push(...chunk);
-      });
-      if (totalWords > 0 && loadedWords.length > totalWords) {
-        loadedWords.length = totalWords;
-      }
+      const loadedWords = readKnownWordsFromChunks(result, chunkKeys, totalWords);
 
-      // Only warn if there's a significant mismatch (more than 10 words difference)
-      const mismatch = Math.abs(loadedWords.length - totalWords);
-      if (mismatch > 10) {
-        if (chunkKeys.length < expectedChunks && retryCount < 3) {
-          setTimeout(() => loadKnownWords(callback, retryCount + 1), 300);
-          return;
-        }
-        // If loaded words exceed expected, just reconcile count silently.
-        if (loadedWords.length > totalWords) {
-          chrome.storage.sync.set({
-            knownWordsCount: loadedWords.length,
-            knownWordsUpdated: Date.now()
-          });
-        } else {
-          console.warn(
-            `Word count mismatch! Expected: ${totalWords}, Loaded: ${loadedWords.length}`
-          );
-          chrome.storage.sync.set({
-            knownWordsCount: loadedWords.length,
-            knownWordsUpdated: Date.now()
-          });
-        }
+      if (
+        reconcileLoadedKnownWordsCount(loadedWords, totalWords, chunkKeys, expectedChunks, {
+          callback,
+          retryCount
+        })
+      ) {
+        return;
       }
 
       const newKnownWords = new Set(loadedWords.map((word) => word.toLowerCase()));
@@ -2561,11 +2734,10 @@ function migrateKnownWordsToSync(callback) {
       }
 
       // Load all words from local storage
-      const loadedWords = [];
-      for (let i = 0; i < Math.ceil(localWordCount / CHUNK_SIZE); i++) {
-        const chunk = localResult[`${STORAGE_KEY_PREFIX}${i}`] || [];
-        loadedWords.push(...chunk);
-      }
+      const chunkKeys = getSortedKnownWordChunkKeys(localResult).filter((key) => {
+        return getKnownWordsChunkIndex(key) < Math.ceil(localWordCount / CHUNK_SIZE);
+      });
+      const loadedWords = readKnownWordsFromChunks(localResult, chunkKeys, localWordCount);
 
       if (loadedWords.length > 0) {
         // Add words to the knownWords set
@@ -2577,7 +2749,6 @@ function migrateKnownWordsToSync(callback) {
         // Mark migration as complete and clean up local storage
         setTimeout(() => {
           chrome.storage.sync.set({ migrationCompleted: true }, () => {
-            // Remove old data from local storage
             const keysToRemove = Object.keys(localResult).filter(
               (key) =>
                 key.startsWith(STORAGE_KEY_PREFIX) ||
@@ -2588,7 +2759,7 @@ function migrateKnownWordsToSync(callback) {
               if (callback) callback();
             });
           });
-        }, 1000); // Give time for sync storage to save
+        }, STORAGE_MIGRATION_SETTLE_DELAY_MS);
       } else {
         chrome.storage.sync.set({ migrationCompleted: true }, () => {
           if (callback) callback();
@@ -2687,7 +2858,7 @@ function shouldIgnoreHoverTarget(target) {
   if (!target) return false;
   return (
     isExtensionUiNode(target) ||
-    isInRichEditorContext(target) ||
+    shouldSkipRichEditorContext(target) ||
     isInHighChurnTextContext(target)
   );
 }
@@ -2862,18 +3033,8 @@ if (!document.location.href.startsWith('chrome://') && !document.location.href.e
 }
 
 // Modify the createSidebar function
-function createSidebar() {
-  if (!isTopLevelFrame()) {
-    return;
-  }
-  // 检查侧边栏是否已存在
-  if (document.querySelector('.hlw-word-sidebar')) {
-    return;
-  }
-
-  const sidebar = document.createElement('div');
-  sidebar.className = 'hlw-root hlw-word-sidebar';
-  sidebar.innerHTML = `
+function getSidebarMarkup() {
+  return `
     <div class="hlw-sidebar-header">
       <h1 class="hlw-sidebar-title">  Learn English</h1>
       <button class="hlw-close-icon" id="closeSidebar" aria-label="Close">&times;</button>
@@ -2932,10 +3093,9 @@ function createSidebar() {
       <ul id="fileContent" class="hlw-file-list"></ul>
     </div>
   `;
+}
 
-  document.body.appendChild(sidebar);
-
-  // Add event listeners
+function bindSidebarEvents() {
   document.getElementById('closeSidebar').addEventListener('click', toggleSidebar);
   document
     .getElementById('vocabularyButton')
@@ -2954,26 +3114,40 @@ function createSidebar() {
     .getElementById('fileContentBackButton')
     .addEventListener('click', () => showContent('hlw-vocabulary'));
 
-  // Add file upload functionality
-  const fileInput = document.getElementById('fileInput');
-  fileInput.addEventListener('change', handleFileUpload);
+  document.getElementById('fileInput').addEventListener('change', handleFileUpload);
 
-  // Add highlight toggle functionality
   const highlightToggle = document.getElementById('highlightToggle');
-  highlightToggle.checked = true; // Set to checked by default
+  highlightToggle.checked = true;
   highlightToggle.addEventListener('change', toggleHighlight);
 
-  // Render the file list when the sidebar is created
-  renderFileList();
-
-  // 添加网站权限控制的事件监听
   const sitePermission = document.getElementById('sitePermission');
   sitePermission.addEventListener('change', toggleSitePermission);
-
-  // 获取并设置当前网站的权限状态
   getCurrentSitePermission().then((isEnabled) => {
     sitePermission.checked = isEnabled;
   });
+
+  const fileList = document.getElementById('fileList');
+  fileList.addEventListener('change', handleFileListChange);
+  fileList.addEventListener('click', handleFileListClick);
+
+  document.getElementById('fileContent').addEventListener('click', handleFileContentClick);
+}
+
+function createSidebar() {
+  if (!isTopLevelFrame()) {
+    return;
+  }
+  if (document.querySelector('.hlw-word-sidebar')) {
+    return;
+  }
+
+  const sidebar = document.createElement('div');
+  sidebar.className = 'hlw-root hlw-word-sidebar';
+  sidebar.innerHTML = getSidebarMarkup();
+  document.body.appendChild(sidebar);
+
+  bindSidebarEvents();
+  renderFileList();
 }
 function readVocabularyFile(file) {
   return new Promise((resolve, reject) => {
@@ -3028,7 +3202,51 @@ async function handleFileUpload(event) {
   });
 }
 
-// Add a new function to render the file list
+function createFileListItem(fileInfo, index, selectedFiles) {
+  const li = document.createElement('li');
+  li.className = 'hlw-file-item';
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.id = `file-${index}`;
+  checkbox.className = 'hlw-file-checkbox';
+  checkbox.checked = selectedFiles.includes(index);
+
+  const label = document.createElement('label');
+  label.htmlFor = checkbox.id;
+  label.className = 'hlw-file-name';
+  label.textContent = fileInfo.name;
+
+  const deleteButton = document.createElement('button');
+  deleteButton.className = 'hlw-delete-file';
+  deleteButton.dataset.index = String(index);
+  deleteButton.textContent = 'x';
+
+  li.appendChild(checkbox);
+  li.appendChild(label);
+  li.appendChild(deleteButton);
+  return li;
+}
+
+function handleFileListChange(event) {
+  if (event.target && event.target.classList.contains('hlw-file-checkbox')) {
+    toggleFileSelection(event);
+  }
+}
+
+function handleFileListClick(event) {
+  const deleteButton = event.target.closest('.hlw-delete-file');
+  if (deleteButton) {
+    deleteFile({ target: deleteButton });
+    return;
+  }
+
+  const fileLabel = event.target.closest('.hlw-file-name');
+  if (fileLabel) {
+    showFileContent({ preventDefault: () => event.preventDefault(), target: fileLabel });
+  }
+}
+
 function renderFileList() {
   const fileList = document.getElementById('fileList');
   if (!fileList) return;
@@ -3055,42 +3273,11 @@ function renderFileList() {
         highlightToggleCheckbox.checked = result.highlightToggle;
       }
 
+      const fragment = document.createDocumentFragment();
       uploadedFiles.forEach((fileInfo, index) => {
-        const li = document.createElement('li');
-        li.className = 'hlw-file-item';
-
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.id = `file-${index}`;
-        checkbox.className = 'hlw-file-checkbox';
-        checkbox.checked = selectedFiles.includes(index);
-
-        const label = document.createElement('label');
-        label.htmlFor = checkbox.id;
-        label.className = 'hlw-file-name';
-        label.textContent = fileInfo.name;
-
-        const deleteButton = document.createElement('button');
-        deleteButton.className = 'hlw-delete-file';
-        deleteButton.dataset.index = String(index);
-        deleteButton.textContent = 'x';
-
-        li.appendChild(checkbox);
-        li.appendChild(label);
-        li.appendChild(deleteButton);
-        fileList.appendChild(li);
+        fragment.appendChild(createFileListItem(fileInfo, index, selectedFiles));
       });
-
-      // Add event listeners
-      document.querySelectorAll('.hlw-file-checkbox').forEach((checkbox) => {
-        checkbox.addEventListener('change', toggleFileSelection);
-      });
-      document.querySelectorAll('.hlw-file-name').forEach((label) => {
-        label.addEventListener('click', showFileContent);
-      });
-      document.querySelectorAll('.hlw-delete-file').forEach((button) => {
-        button.addEventListener('click', deleteFile);
-      });
+      fileList.appendChild(fragment);
     }
   );
 }
@@ -3136,8 +3323,7 @@ function toggleSidebar() {
   sidebar.classList.toggle('hlw-open', sidebarOpen);
 }
 
-// This code sets up a listener in the content script that waits for messages from the background script
-// When a message with the action "toggleSidebar" is received, it calls the toggleSidebar() function
+// The background action asks the content script to toggle the page sidebar.
 try {
   chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
     if (request.action === 'toggleSidebar') {
@@ -3166,15 +3352,7 @@ function showContent(contentId) {
   }
 }
 
-function renderWordList() {
-  const wordList = document.getElementById('wordList');
-  const knownWordHeader = document.querySelector('.hlw-sidebar-content.hlw-learned h2');
-  if (!wordList || !knownWordHeader) return; // Exit if the elements don't exist
-
-  // Update the hlw-content-header to include the number of known words
-  knownWordHeader.textContent = `Known Words (${knownWords.size})`;
-
-  // Add import and export buttons
+function ensureWordListToolbar(wordList) {
   let buttonContainer = document.querySelector('.hlw-word-list-buttons');
   if (!buttonContainer) {
     buttonContainer = document.createElement('div');
@@ -3199,20 +3377,29 @@ function renderWordList() {
     exportButton.addEventListener('click', exportKnownWords);
     buttonContainer.appendChild(exportButton);
   }
+}
 
-  // Check if search box already exists
+function ensureWordSearchBox(wordList) {
   let searchBox = document.querySelector('.hlw-word-search');
   if (!searchBox) {
-    // Add search box only if it doesn't exist
     searchBox = document.createElement('input');
     searchBox.type = 'text';
     searchBox.placeholder = 'Search known words...';
     searchBox.className = 'hlw-word-search';
     searchBox.addEventListener('input', filterWords);
-
-    // Insert search box before the word list
     wordList.parentNode.insertBefore(searchBox, wordList);
   }
+  return searchBox;
+}
+
+function renderWordList() {
+  const wordList = document.getElementById('wordList');
+  const knownWordHeader = document.querySelector('.hlw-sidebar-content.hlw-learned h2');
+  if (!wordList || !knownWordHeader) return;
+
+  knownWordHeader.textContent = `Known Words (${knownWords.size})`;
+  ensureWordListToolbar(wordList);
+  const searchBox = ensureWordSearchBox(wordList);
 
   renderFilteredWords(searchBox.value);
 }
@@ -3256,13 +3443,15 @@ function renderFilteredWords(filter = '') {
   const wordList = document.getElementById('wordList');
   wordList.innerHTML = '';
 
+  const fragment = document.createDocumentFragment();
   const filteredWords = Array.from(knownWords).filter((word) =>
     word.toLowerCase().includes(filter.toLowerCase())
   );
 
   filteredWords.forEach((word) => {
-    appendWordToList(word, wordList);
+    appendWordToList(word, fragment);
   });
+  wordList.appendChild(fragment);
 }
 
 function appendWordToList(word, wordList) {
@@ -3304,19 +3493,8 @@ function deleteWord(word) {
       const selectedFiles = result.selectedFiles || [];
       const uploadedFiles = result.uploadedFiles || [];
 
-      // 检查单词是否在选中的文件中
-      let wordInSelectedFiles = false;
-      if (selectedFiles.length > 0) {
-        selectedFiles.forEach((fileIndex) => {
-          const fileInfo = uploadedFiles[fileIndex];
-          if (fileInfo && fileInfo.content) {
-            const words = fileInfo.content.split('\n').map((w) => w.trim().toLowerCase());
-            if (words.includes(lowercaseWord)) {
-              wordInSelectedFiles = true;
-            }
-          }
-        });
-      }
+      const selectedWords = buildSelectedWordsSet(selectedFiles, uploadedFiles);
+      const wordInSelectedFiles = selectedWords.has(lowercaseWord);
 
       // 如果开启了全部高亮或单词在选中的文件中，则重新高亮该单词
       if (highlightToggle || wordInSelectedFiles) {
@@ -3332,57 +3510,44 @@ function deleteWord(word) {
       // 延迟清除标志
       setTimeout(() => {
         isAddingKnownWord = false;
-      }, 200);
+      }, KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS);
     }
   );
 }
 
 // Modify the clearAllWords function
 function clearAllWords() {
+  isAddingKnownWord = true;
   clearAllKnownWordsFromStorage(() => {
-    // Clear all highlights
-    clearAllHighlights();
+    renderWordList();
+    updateHighlights();
 
-    // Check which files are selected and highlight words from those files
-    chrome.storage.local.get(['selectedFiles', 'uploadedFiles'], function (result) {
-      const selectedFiles = result.selectedFiles || [];
-      const uploadedFiles = result.uploadedFiles || [];
-
-      if (selectedFiles.length > 0) {
-        const wordsToHighlight = new Set();
-        selectedFiles.forEach((fileIndex) => {
-          const fileInfo = uploadedFiles[fileIndex];
-          if (fileInfo && fileInfo.content) {
-            const words = fileInfo.content
-              .split('\n')
-              .map((word) => word.trim().toLowerCase())
-              .filter((word) => word);
-            words.forEach((word) => wordsToHighlight.add(word));
-          }
-        });
-
-        // Process the document with the selected words
-        processRootAndOpenShadowRoots(document.body, wordsToHighlight);
-      }
-
-      // Update the sidebar word list and count
-      renderWordList();
-    });
+    setTimeout(() => {
+      isAddingKnownWord = false;
+    }, KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS);
   });
 }
 
 function clearAllKnownWordsFromStorage(callback) {
   chrome.storage.sync.get(null, (items) => {
-    const keysToRemove = Object.keys(items).filter(
-      (key) => key.startsWith(STORAGE_KEY_PREFIX) || key === 'knownWordsCount'
-    );
+    const keysToRemove = getKnownWordCleanupKeys(items);
 
-    const batchSize = 100;
-    const removeBatch = (index) => {
-      const batch = keysToRemove.slice(index, index + batchSize);
-      if (batch.length === 0) {
-        knownWords.clear();
+    const finishClear = () => {
+      knownWords.clear();
+      chrome.storage.sync.set({ knownWordsUpdated: Date.now() }, () => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            `Error committing known words clear: ${chrome.runtime.lastError.message}`
+          );
+        }
         if (callback) callback();
+      });
+    };
+
+    const removeBatch = (index) => {
+      const batch = keysToRemove.slice(index, index + STORAGE_CLEAR_BATCH_SIZE);
+      if (batch.length === 0) {
+        finishClear();
         return;
       }
 
@@ -3390,7 +3555,10 @@ function clearAllKnownWordsFromStorage(callback) {
         if (chrome.runtime.lastError) {
           console.error(`Error clearing known words: ${chrome.runtime.lastError.message}`);
         }
-        setTimeout(() => removeBatch(index + batchSize), 200);
+        setTimeout(
+          () => removeBatch(index + STORAGE_CLEAR_BATCH_SIZE),
+          STORAGE_CLEAR_BATCH_DELAY_MS
+        );
       });
     };
 
@@ -3398,7 +3566,30 @@ function clearAllKnownWordsFromStorage(callback) {
   });
 }
 
-// Add a new function to show file content
+function createFileContentItem(line, originalIndex, fileIndex) {
+  const li = document.createElement('li');
+  li.className = 'hlw-content-item';
+
+  const lineText = document.createElement('span');
+  lineText.textContent = line;
+
+  const deleteButton = document.createElement('button');
+  deleteButton.className = 'hlw-delete-line';
+  deleteButton.dataset.index = String(originalIndex);
+  deleteButton.dataset.fileIndex = String(fileIndex);
+  deleteButton.textContent = 'Delete';
+
+  li.appendChild(lineText);
+  li.appendChild(deleteButton);
+  return li;
+}
+
+function handleFileContentClick(event) {
+  const deleteButton = event.target.closest('.hlw-delete-line');
+  if (!deleteButton) return;
+  deleteLine({ target: deleteButton }, deleteButton.dataset.fileIndex);
+}
+
 function showFileContent(event) {
   event.preventDefault();
   const fileIndex = event.target.getAttribute('for').split('-')[1];
@@ -3418,27 +3609,11 @@ function showFileContent(event) {
       fileContentView.querySelector('h2').textContent = fileInfo.name;
       const fileContentList = fileContentView.querySelector('#fileContent');
       fileContentList.innerHTML = '';
+      const fragment = document.createDocumentFragment();
       content.forEach(({ line, originalIndex }) => {
-        const li = document.createElement('li');
-        li.className = 'hlw-content-item';
-
-        const lineText = document.createElement('span');
-        lineText.textContent = line;
-
-        const deleteButton = document.createElement('button');
-        deleteButton.className = 'hlw-delete-line';
-        deleteButton.dataset.index = String(originalIndex);
-        deleteButton.textContent = 'Delete';
-
-        li.appendChild(lineText);
-        li.appendChild(deleteButton);
-        fileContentList.appendChild(li);
+        fragment.appendChild(createFileContentItem(line, originalIndex, fileIndex));
       });
-
-      // Add event listeners for delete buttons
-      fileContentList.querySelectorAll('.hlw-delete-line').forEach((button) => {
-        button.addEventListener('click', (e) => deleteLine(e, fileIndex));
-      });
+      fileContentList.appendChild(fragment);
 
       showContent('hlw-file-content');
     } else {
@@ -3613,11 +3788,10 @@ function handleMouseDown(event) {
 
 function handleMouseUp(event) {
   isMouseDown = false;
-  // 延迟检查选择，确保选择完成
   clearTimeout(selectionTimeout);
   selectionTimeout = setTimeout(() => {
     checkSelection();
-  }, 100);
+  }, SELECTION_CHECK_DELAY_MS);
 }
 
 function handleSelectionChange() {
@@ -3626,7 +3800,7 @@ function handleSelectionChange() {
   clearTimeout(selectionTimeout);
   selectionTimeout = setTimeout(() => {
     checkSelection();
-  }, 100);
+  }, SELECTION_CHECK_DELAY_MS);
 }
 
 function handleDoubleClick(event) {
@@ -3635,7 +3809,7 @@ function handleDoubleClick(event) {
   clearTimeout(selectionTimeout);
   selectionTimeout = setTimeout(() => {
     checkSelection();
-  }, 50);
+  }, SELECTION_DOUBLE_CLICK_DELAY_MS);
 }
 
 function handleDocumentClick(event) {
@@ -3669,97 +3843,97 @@ function isValidEnglishText(text) {
   return englishPattern.test(text) && text.length >= 1;
 }
 
-function showSelectionIcon(range, text) {
-  hideSelectionIcon(); // 先隐藏现有的图标
-
-  // 创建选择图标
-  selectionIcon = document.createElement('div');
-  selectionIcon.className = 'selection-icon';
-
-  // 创建图片元素
+function createSelectionIconImage() {
   const iconImg = document.createElement('img');
   const imageUrl = chrome.runtime.getURL('img/letter-e-16.png');
   iconImg.src = imageUrl;
   iconImg.style.cssText = `
-    width: 16px;
-    height: 16px;
+    width: ${SELECTION_ICON_IMAGE_SIZE_PX}px;
+    height: ${SELECTION_ICON_IMAGE_SIZE_PX}px;
     display: block;
   `;
   iconImg.alt = '翻译';
 
-  // 添加图片加载错误处理
   iconImg.onerror = function () {
     console.error('翻译图标加载失败:', imageUrl);
-    // 如果图片加载失败，回退到文字图片
     this.style.display = 'none';
     selectionIcon.innerHTML = '🔍';
-    selectionIcon.style.fontSize = '12px';
+    selectionIcon.style.fontSize = `${SELECTION_ICON_FALLBACK_FONT_SIZE_PX}px`;
   };
+  return iconImg;
+}
 
-  selectionIcon.appendChild(iconImg);
-  selectionIcon.title = '点击查看翻译';
-
-  // 设置图标样式
-  selectionIcon.style.cssText = `
+function applySelectionIconStyle(icon) {
+  icon.title = '点击查看翻译';
+  icon.style.cssText = `
     position: absolute;
-    background:rgb(33, 150, 243);
+    background: ${SELECTION_ICON_BACKGROUND};
     color: white;
     border-radius: 50%;
-    width: 24px;
-    height: 24px;
+    width: ${SELECTION_ICON_SIZE_PX}px;
+    height: ${SELECTION_ICON_SIZE_PX}px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    z-index: 100000;
+    z-index: ${SELECTION_ICON_Z_INDEX};
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     transition: all 0.2s ease;
     pointer-events: auto;
     user-select: none;
   `;
+}
 
-  // 计算图标位置
+function positionSelectionIcon(icon, range) {
   const rect = range.getBoundingClientRect();
-  const iconLeft = rect.right + window.scrollX + 5;
-  const iconTop = rect.top + window.scrollY - 12;
+  const iconLeft = rect.right + window.scrollX + SELECTION_ICON_OFFSET_X_PX;
+  const iconTop = rect.top + window.scrollY + SELECTION_ICON_OFFSET_Y_PX;
 
-  selectionIcon.style.left = `${iconLeft}px`;
-  selectionIcon.style.top = `${iconTop}px`;
+  icon.style.left = `${iconLeft}px`;
+  icon.style.top = `${iconTop}px`;
+  return rect;
+}
 
-  // 添加点击事件
-  selectionIcon.addEventListener('click', (event) => {
+function bindSelectionIconEvents(icon, text, rect) {
+  icon.addEventListener('click', (event) => {
     event.stopPropagation();
     event.preventDefault();
     handleSelectionIconClick(text, rect);
   });
 
-  // 添加 mousedown 事件作为备用
-  selectionIcon.addEventListener('mousedown', (event) => {
+  icon.addEventListener('mousedown', (event) => {
     event.stopPropagation();
   });
 
-  // 添加 touchend 事件作为移动设备支持
-  selectionIcon.addEventListener('touchend', (event) => {
+  icon.addEventListener('touchend', (event) => {
     event.stopPropagation();
     event.preventDefault();
     handleSelectionIconClick(text, rect);
   });
 
-  // 添加悬停效果
-  selectionIcon.addEventListener('mouseenter', () => {
-    selectionIcon.style.transform = 'scale(1.1)';
-    selectionIcon.style.background = 'rgb(33, 150, 243)'; // 稍深的蓝色
+  icon.addEventListener('mouseenter', () => {
+    icon.style.transform = 'scale(1.1)';
+    icon.style.background = SELECTION_ICON_BACKGROUND;
   });
 
-  selectionIcon.addEventListener('mouseleave', () => {
-    selectionIcon.style.transform = 'scale(1)';
-    selectionIcon.style.background = 'rgb(33, 150, 243)'; // 恢复原来的蓝色
+  icon.addEventListener('mouseleave', () => {
+    icon.style.transform = 'scale(1)';
+    icon.style.background = SELECTION_ICON_BACKGROUND;
   });
+}
 
-  // 将图标添加到页面
+function showSelectionIcon(range, text) {
+  hideSelectionIcon();
+
+  selectionIcon = document.createElement('div');
+  selectionIcon.className = 'selection-icon';
+  selectionIcon.appendChild(createSelectionIconImage());
+  applySelectionIconStyle(selectionIcon);
+
+  const rect = positionSelectionIcon(selectionIcon, range);
+  bindSelectionIconEvents(selectionIcon, text, rect);
+
   document.body.appendChild(selectionIcon);
-
-  // 存储选中的文本
   selectedText = text;
 }
 

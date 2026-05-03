@@ -1,17 +1,19 @@
 // Handles toolbar icon clicks and toggles the sidebar in the active tab.
+const TRANSLATION_REQUEST_TIMEOUT_MS = 2000;
+const BLOCKED_ACTION_PROTOCOLS = new Set([
+  'chrome:',
+  'chrome-extension:',
+  'edge:',
+  'about:',
+  'view-source:'
+]);
+
 function canToggleSidebarInTab(tab) {
   if (!tab || typeof tab.id !== 'number' || !tab.url) return false;
 
   try {
     const url = new URL(tab.url);
-    const blockedProtocols = new Set([
-      'chrome:',
-      'chrome-extension:',
-      'edge:',
-      'about:',
-      'view-source:'
-    ]);
-    if (blockedProtocols.has(url.protocol)) return false;
+    if (BLOCKED_ACTION_PROTOCOLS.has(url.protocol)) return false;
     if (url.pathname.toLowerCase().endsWith('.xml')) return false;
     return true;
   } catch (error) {
@@ -32,7 +34,8 @@ chrome.action.onClicked.addListener((tab) => {
 const TRANSLATION_SOURCES = {
   google: {
     url: (word) =>
-      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh&dt=t&q=${encodeURIComponent(word)}`,
+      'https://translate.googleapis.com/translate_a/single' +
+      `?client=gtx&sl=en&tl=zh&dt=t&q=${encodeURIComponent(word)}`,
     processResponse: async (response) => {
       const data = await response.json();
       const translation = data?.[0]?.[0]?.[0];
@@ -41,7 +44,8 @@ const TRANSLATION_SOURCES = {
   },
   cambridge: {
     url: (word) =>
-      `https://dictionary.cambridge.org/us/dictionary/english-chinese-simplified/${encodeURIComponent(word)}`,
+      'https://dictionary.cambridge.org/us/dictionary/english-chinese-simplified/' +
+      encodeURIComponent(word),
     processResponse: async (response) => {
       const cambridgeHtml = await response.text();
       return { html: cambridgeHtml, source: 'cambridge' };
@@ -61,7 +65,7 @@ const TRANSLATION_SOURCES = {
 async function fetchTranslation(source, word) {
   const config = TRANSLATION_SOURCES[source];
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000);
+  const timeoutId = setTimeout(() => controller.abort(), TRANSLATION_REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(config.url(word), { signal: controller.signal });
