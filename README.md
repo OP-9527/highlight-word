@@ -1,107 +1,271 @@
-# English Word Highlighter and Learning Assistant Chrome Extension
+# English Word Highlighter
 
-This Chrome extension automatically highlights English words on web pages and provides a learning interface to help users expand their vocabulary. It supports both automatic highlighting of all English words and selective highlighting based on custom word lists.
+English Word Highlighter 是一个 Chrome Manifest V3 扩展，用于在网页中自动高亮英文单词，并提供翻译、发音、已知单词管理、自定义词表高亮和跨设备同步能力。它适合英语阅读、词汇积累和按主题词表进行针对性学习。
 
-主要用于网页上的单词高亮、翻译以及管理用户已知和未知的单词列表
+## 功能概览
 
-## Features
+- 自动识别网页中的英文单词，并高亮用户尚未标记为已知的单词。
+- 支持两种高亮模式：
+  - `Highlight all words`：高亮所有未加入已知词表的英文单词。
+  - 自定义词表模式：只高亮用户上传并勾选的词表中的单词。
+- 鼠标悬停高亮单词时显示翻译弹窗。
+- 选中任意英文单词、短语、句子或段落后，可点击页面上的翻译图标查看翻译。
+- 支持 Google 翻译、剑桥词典和必应词典结果。
+- 支持单词发音。
+- 支持将高亮单词标记为已知词，减少后续阅读中的干扰。
+- 支持已知词搜索、删除、清空、导入和导出。
+- 已知词通过 Chrome Sync 跨设备同步。
+- 支持上传多个 `.txt` 自定义词表，并按文件选择要高亮的词。
+- 支持为当前网站单独启用或禁用插件。
 
-- Highlights unfamiliar English words on web pages with two modes:
-  - Auto mode: Highlights all English words except known words
-  - List mode: Only highlights words from selected custom word lists
-- Provides a popup with comprehensive word information:
-  - Phonetic pronunciation
-  - Dictionary definitions with parts of speech
-  - Google translation
-  - One-click audio pronunciation
-- Allows users to mark words as "known" to customize their learning experience
-- Includes a sidebar with vocabulary management features:
-  - View and manage known words list
-  - Import/export word lists
-  - Upload and manage custom word lists
-  - Search functionality for known words
-- **Cross-device synchronization**: Known words automatically sync across all your devices using Chrome Sync
-- Syncs known words across multiple tabs and browser sessions
-- Supports file upload for custom word lists in txt format
+## 安装方法
 
-## Installation
+### 开发者模式安装
 
-1. Clone or download this repository
-2. Open Google Chrome and go to `chrome://extensions`
-3. Enable "Developer mode" in the top right corner
-4. Click "Load unpacked" and select the folder containing the extension files
+1. 下载或克隆本项目到本地。
+2. 打开 Chrome，进入 `chrome://extensions/`。
+3. 打开右上角的 `开发者模式`。
+4. 点击 `加载已解压的扩展程序`。
+5. 选择本项目文件夹。
 
-## Usage
+### 打包安装
 
-1. Once installed, the extension will automatically highlight unfamiliar English words on web pages you visit
-2. Click on a highlighted word to see its translation and pronunciation
-3. Use the "✔" button in the popup to mark a word as known
-4. Click the extension icon in the toolbar to open the sidebar for more features:
-   - View and manage your list of known words
-   - Upload custom word lists
-   - Toggle between auto-highlight and list-based highlight modes
-   - Import/export your known words
-   - Search through your known words
+1. 在 `chrome://extensions/` 的开发者模式下点击 `打包扩展程序`。
+2. 选择本项目文件夹生成 `.crx` 文件。
+3. 将 `.crx` 文件拖入扩展程序页面安装。
 
-### Cross-Device Synchronization
+## 基本使用
 
-To enable synchronization of your known words across multiple computers:
+### 打开侧边栏
 
-1. **Sign in to Chrome**: Make sure you're signed in to the same Google account on all devices
-2. **Enable Sync**: Go to Chrome Settings → Sync and Google services → Manage sync
-3. **Enable Extensions**: Ensure "Extensions" sync is turned on
-4. **Install the extension**: Install the extension on all your devices
-5. Your known words will automatically sync across all devices within a few minutes
+安装完成后，插件会在支持的网页中自动运行。点击浏览器工具栏中的 English Word Highlighter 图标，可以打开或关闭插件侧边栏。
 
-**Note**: The extension will automatically migrate your existing known words from local storage to sync storage on first use of the updated version.
+侧边栏包含以下区域：
 
-## Technical Details
+- 主页面：当前网站开关、词汇管理入口和插件功能入口。
+- Vocabulary：高亮模式、自定义词表上传和词表选择。
+- Known Words：已知单词列表、搜索、导入、导出和删除。
+- File Content：查看并编辑已上传词表的内容。
 
-The extension is built using the following technologies:
+### 查看单词翻译
 
-- **Content Script**: Uses content.js to process web page content and handle user interactions
-- **CSS Highlight API**: Implements modern web highlighting capabilities for better performance
-- **Chrome Storage API**: Manages persistent storage of known words and settings
-- **Translation APIs**: 
-  - Integrates with dict.cn for comprehensive English definitions
-  - Uses Google Translate API for quick translations
-- **Web Speech API**: Provides word pronunciation functionality
+可以通过三种方式查看翻译：
 
-### Architecture
+1. 鼠标悬停在高亮单词上。
+2. 选中任意包含英文字母的文本，点击出现的翻译图标。
+3. 双击英文单词后点击出现的翻译图标。
 
-- **Background Script**: Handles API calls and extension icon clicks
-- **Content Script**: Manages DOM manipulation and word highlighting
-- **Sidebar Interface**: Provides word management and settings controls
-- **Popup Component**: Displays word information and translation results
+翻译弹窗会尽量展示：
 
-### Storage
+- 中文翻译。
+- 英文释义。
+- 词性。
+- 音标。
+- 例句或词典补充内容。
+- 发音按钮。
 
-- **Known Words**: Stored in `chrome.storage.sync` for cross-device synchronization 
-  - Limit: ~100KB total, 8KB per item
-  - Capacity: ~5,000-8,000 words (depends on word length)
-  - Chunk size: 200 words per chunk to stay within limits
-- **Custom Word Lists**: Stored in `chrome.storage.local` (device-specific, not synced)
-- **Settings**: Stored in `chrome.storage.local` (device-specific, not synced)
+通过高亮单词触发的翻译弹窗会显示 `✔` 按钮，点击后可将该单词加入已知词表。通过文本选择触发的翻译弹窗主要用于查询，不会把整段文本加入已知词表。
 
-**Note**: If you encounter quota errors with a large word list, consider exporting and clearing some words, or use import/export for manual sync.
+### 管理已知单词
 
-## Limitations
+1. 点击浏览器工具栏中的插件图标打开侧边栏。
+2. 进入 `Known Words`。
+3. 可以搜索、删除、清空、导入或导出已知词。
 
-- The extension may not work perfectly on all websites, especially those with complex dynamic content
-- It may slightly impact page load times on text-heavy pages
-- The highlighting is based on a simple regex pattern and may occasionally highlight non-English words that match the pattern
-- Translation features rely on external APIs and may be subject to rate limiting or service disruptions
-- CSS Highlight API may not be supported in all browsers
+已知单词会用于判断哪些词不再需要高亮。删除某个已知词后，如果当前页面仍符合高亮规则，该词会重新出现在高亮范围内。
 
-## Contributing
+### 使用自定义词表
 
-Feel free to submit issues or pull requests if you have any suggestions for improvements or bug fixes. Areas that could use improvement include:
+1. 准备 `.txt` 文件，每行放一个单词。
+2. 打开侧边栏并进入 `Vocabulary`。
+3. 点击上传文件并选择一个或多个 `.txt` 文件。
+4. 勾选要使用的词表。
 
-- Performance optimization for large pages
-- Better word detection algorithms
-- Additional translation service providers
-- Enhanced offline capabilities
-- Mobile browser support
+勾选词表后，插件会切换到自定义词表模式，只高亮被选中词表中的单词，并且仍会跳过已知词。
+
+如果重新打开 `Highlight all words`，已勾选的自定义词表会被取消选择，插件回到自动高亮所有未知词的模式。
+
+### 当前网站开关
+
+侧边栏中的 `Allow to run on this web site` 可以控制插件是否在当前网站运行。
+
+- 开启：当前网站可以高亮、选词翻译和显示弹窗。
+- 关闭：当前网站会停止高亮和文本选择翻译，已存在的高亮也会被清理。
+
+该设置按网站域名保存，适合在编辑器、后台系统、文档工具或不希望插件干预的网站中关闭插件。
+
+## 跨设备同步
+
+已知词使用 `chrome.storage.sync` 存储，只要多个设备登录同一个 Chrome 账号并开启扩展程序同步，已知词会自动同步。
+
+启用同步需要：
+
+1. 在所有设备上登录同一个 Chrome 账号。
+2. 打开 Chrome 设置中的同步功能。
+3. 确认 `扩展程序` 同步已开启。
+4. 在所有设备上安装本插件。
+
+同步通常会在几分钟内完成。已知词以 Chrome Sync 中的当前同步数据为准。
+
+### 同步存储限制
+
+Chrome Sync 有容量限制，插件会把已知词拆分为多个分片保存：
+
+- 总容量约 `100KB`。
+- 单项限制约 `8KB`。
+- 每个分片保存约 `200` 个单词。
+- 通常可保存约 `5,000-8,000` 个单词，实际数量取决于单词长度。
+
+如果遇到 `quota exceeded` 之类的配额错误，建议先导出备份，再删除一部分不常用或已经非常熟悉的单词。也可以通过导入和导出进行手动备份。
+
+## 导入与导出
+
+### 导出已知词
+
+在 `Known Words` 中点击 `Export Word`，插件会导出一个 `.txt` 文件，文件名包含当天日期，例如：
+
+```text
+known_words_2026-05-03.txt
+```
+
+### 导入已知词
+
+在 `Known Words` 中点击 `Import Word`，选择 `.txt` 文件即可导入。插件会按行读取单词，并自动跳过已存在的词。
+
+### 自定义词表文件格式
+
+推荐使用纯文本 `.txt` 文件，每行一个单词：
+
+```text
+abandon
+capacity
+deployment
+resilience
+```
+
+## 技术说明
+
+### 扩展结构
+
+- `manifest.json`：扩展配置，当前版本为 `1.22`。
+- `background.js`：处理扩展图标点击、受限页面判断和外部翻译请求。
+- `content.js`：负责页面高亮、翻译弹窗、侧边栏、文本选择翻译、词表管理和存储同步。
+- `styles.css`：高亮、弹窗、侧边栏和选择图标样式。
+- `img/`：扩展图标和截图资源。
+
+### 使用的浏览器能力
+
+- Manifest V3。
+- Content Scripts。
+- Background Service Worker。
+- Chrome Storage API。
+- Chrome Sync Storage。
+- CSS Highlight API。
+- Web Speech API。
+- MutationObserver。
+
+### 翻译来源
+
+插件会并行请求多个翻译来源：
+
+- Google Translate：快速中文翻译。
+- Cambridge Dictionary：英文释义、音标和词典内容。
+- Bing Dictionary：中文释义和补充词典内容。
+
+翻译结果会在页面内缓存约 24 小时，最多缓存 500 条，以减少重复请求。
+
+### 数据存储
+
+- 已知词：`chrome.storage.sync`，支持跨设备同步。
+- 自定义词表：`chrome.storage.local`，仅保存在当前设备。
+- 高亮模式、选中文件、网站禁用列表等设置：`chrome.storage.local`，仅保存在当前设备。
+
+插件不会把自定义词表同步到其他设备。如果需要迁移自定义词表，请在另一台设备重新上传对应 `.txt` 文件。
+
+## 使用建议
+
+- 阅读普通网页时，可以使用 `Highlight all words` 模式快速发现生词。
+- 针对考试、技术文档或特定主题学习时，建议上传自定义词表，只高亮目标词。
+- 在文本量很大、动态内容很多的网站上，如果页面变慢，可以改用自定义词表模式，或临时关闭当前网站开关。
+- 定期导出已知词，作为 Chrome Sync 之外的额外备份。
+- 在在线编辑器、富文本输入框、文档编辑器等页面，如果不希望插件干扰输入，可以关闭当前网站开关。
+
+## 常见问题
+
+### 插件在某些页面不工作怎么办？
+
+Chrome 不允许扩展在部分受限页面运行，例如 `chrome://`、`chrome-extension://`、`about:`、`view-source:` 页面，以及部分浏览器内部页面。普通网站中如果暂时没有效果，可以刷新页面，或检查当前网站开关是否已关闭。
+
+### 为什么有些词没有被高亮？
+
+常见原因包括：
+
+- 该词已经在已知词表中。
+- 当前处于自定义词表模式，但该词不在选中的词表里。
+- 当前网站被关闭。
+- 页面区域属于输入框、编辑器、视频控件、实时弹幕等插件会主动跳过的区域。
+- 页面超过高亮数量或文本节点处理上限，插件会优先保证性能。
+
+### 为什么选中文本翻译没有 `✔` 按钮？
+
+选中文本翻译支持单词、短语、句子和段落，不一定是单个词。为了避免误把整段内容加入已知词表，只有从高亮单词触发的翻译弹窗才提供 `✔` 按钮。
+
+### 翻译结果不准确怎么办？
+
+翻译依赖外部服务，结果可能受网络、词典内容和上下文影响。可以对比 Google、剑桥和必应的结果，必要时以词典释义为准。
+
+### 页面变慢怎么办？
+
+可以尝试：
+
+1. 切换到自定义词表模式。
+2. 清理不再使用的自定义词表。
+3. 在当前网站关闭插件。
+4. 刷新页面后重新打开侧边栏。
+
+### 如何备份数据？
+
+在 `Known Words` 中使用导出功能保存已知词 `.txt` 文件。自定义词表本身来自用户上传的 `.txt` 文件，建议保留原文件作为备份。
+
+## 隐私说明
+
+- 插件不会收集用户个人身份信息。
+- 已知词通过 Chrome Sync 在用户自己的 Chrome 账号下同步。
+- 自定义词表和本地设置保存在当前浏览器本地。
+- 查询翻译时，选中的单词或文本会发送到外部翻译或词典服务。
+- 插件不会主动上传用户完整浏览历史。
+
+## 版本记录
+
+### 1.22
+
+- 当前 Manifest 版本。
+- 优化高亮性能、动态页面处理、翻译请求稳定性、受限页面处理和同步分片清理。
+- 支持网站级启用/禁用、跨设备已知词同步、文本选择翻译、自定义词表模式和已知词导入导出。
+
+### 1.5
+
+- 新增跨设备同步功能。
+- 使用 `chrome.storage.sync` 保存已知词。
+- 支持通过 Google 账号在不同设备间同步学习进度。
+
+### 1.3
+
+- 新增文本选择翻译功能。
+- 支持选择任意长度的英文文本进行翻译。
+- 添加双击单词快速选择功能。
+- 优化翻译弹窗界面，区分不同触发方式。
+
+### 1.1
+
+- 添加自定义单词列表功能。
+- 改进用户界面。
+- 优化翻译缓存机制。
+
+### 1.0
+
+- 初始版本。
+- 支持基础单词高亮、翻译和词汇管理。
 
 ## License
 

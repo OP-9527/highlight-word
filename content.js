@@ -20,7 +20,6 @@ const CHUNK_SIZE = 200;
 const STORAGE_SAVE_BATCH_DELAY_MS = 50;
 const STORAGE_CLEAR_BATCH_SIZE = 100;
 const STORAGE_CLEAR_BATCH_DELAY_MS = 200;
-const STORAGE_MIGRATION_SETTLE_DELAY_MS = 1000;
 const KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS = 200;
 const ADD_KNOWN_WORD_SAVE_DELAY_MS = 100;
 const STORAGE_LOAD_RETRY_DELAY_MS = 300;
@@ -50,11 +49,10 @@ let activePopup = null;
 let popupHideTimer = null;
 let translationCache = new Map();
 let currentTranslationController = null;
-let isAddingKnownWord = false; // 添加标志来跟踪是否正在添加已知单词
+let knownWordsSyncWriteDepth = 0;
 let selectionIcon = null;
 let selectionTimeout = null;
 let isMouseDown = false;
-let selectedText = '';
 let popupStylesText = null;
 let popupStylesPromise = null;
 let currentPopupRequestId = 0;
@@ -107,6 +105,22 @@ const YOUTUBE_LIVE_CHAT_TEXT_CONTAINER_SELECTOR = [
   'yt-live-chat-viewer-engagement-message-renderer',
   '#message',
   '#author-name'
+].join(',');
+const LINKEDIN_READABLE_DYNAMIC_TEXT_SELECTOR = [
+  '.artdeco-carousel',
+  '.org-jobs-recently-posted-jobs-module',
+  '.jobs-company__box',
+  '.jobs-search-results-list',
+  '.job-card-container',
+  '.jobs-unified-top-card',
+  '.base-card',
+  '.base-search-card',
+  '[class*="job-card"]',
+  '[class*="jobs-company"]',
+  '[class*="jobs-search"]',
+  '[class*="org-jobs"]',
+  '[class*="recently-posted-jobs"]',
+  '[data-test-id*="job"]'
 ].join(',');
 const RICH_EDITOR_ROOT_SELECTOR = [
   '[contenteditable="true"]',
@@ -561,6 +575,16 @@ function isTwitterHost() {
   );
 }
 
+function isLinkedInHost() {
+  const host = window.location.hostname;
+  return host === 'linkedin.com' || host.endsWith('.linkedin.com');
+}
+
+function isLinkedInJobsPage() {
+  if (!isLinkedInHost()) return false;
+  return (window.location.pathname || '').includes('/jobs');
+}
+
 function isTopLevelFrame() {
   try {
     return window.top === window;
@@ -631,6 +655,13 @@ function isTwitterEditorPlaceholderContext(node) {
   return !!closestSafely(element, TWITTER_EDITOR_PLACEHOLDER_SELECTOR);
 }
 
+function isLinkedInReadableDynamicTextContext(node) {
+  if (!isLinkedInJobsPage()) return false;
+  const element = getContextElement(node);
+  if (!element) return false;
+  return !!closestSafely(element, LINKEDIN_READABLE_DYNAMIC_TEXT_SELECTOR);
+}
+
 function isInHighChurnTextContext(node) {
   const element = getContextElement(node);
   if (!element) return false;
@@ -638,6 +669,7 @@ function isInHighChurnTextContext(node) {
   if (isTwitterEditorPlaceholderContext(element)) return false;
   if (isTwitterStaticInteractiveTextContext(element)) return false;
   if (isYouTubeReadableDynamicTextContext(element)) return false;
+  if (isLinkedInReadableDynamicTextContext(element)) return false;
   if (closestSafely(element, HIGH_CHURN_TEXT_CONTAINER_SELECTOR)) return true;
   if (isYouTubeHost() && closestSafely(element, YOUTUBE_HIGH_CHURN_TEXT_CONTAINER_SELECTOR)) {
     return true;
@@ -1091,7 +1123,6 @@ function isPartOfSidebar(node) {
   return false;
 }
 
-// 精简后的递归高亮函数
 function processAllTextNodes(root, wordsSet = null, options = {}) {
   if (!siteEnabled) return 0;
   if (!root) return 0;
@@ -1142,7 +1173,7 @@ function isInWordPopup(node) {
 
 function isElementVisibleForHighlight(element) {
   if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
-  if (element.closest('[hidden], [aria-hidden="true"]')) return false;
+  if (element.closest('[hidden]')) return false;
 
   let current = element;
   while (current && current.nodeType === Node.ELEMENT_NODE) {
@@ -1406,8 +1437,6 @@ async function getTranslation(word, signal) {
   }
 
   return new Promise((resolve, reject) => {
-    const messageId = Date.now();
-
     const cleanup = () => {
       signal?.removeEventListener('abort', onAbort);
     };
@@ -1419,7 +1448,7 @@ async function getTranslation(word, signal) {
 
     signal?.addEventListener('abort', onAbort);
 
-    chrome.runtime.sendMessage({ action: 'translate', word: word, messageId }, (response) => {
+    chrome.runtime.sendMessage({ action: 'translate', word }, (response) => {
       cleanup();
       if (chrome.runtime.lastError) {
         reject(chrome.runtime.lastError);
@@ -1435,7 +1464,6 @@ async function getTranslation(word, signal) {
   });
 }
 
-// Add these new helper functions
 function getCachedTranslation(key) {
   const cachedEntry = translationCache.get(key);
   if (cachedEntry) {
@@ -1716,7 +1744,6 @@ function extractPronunciation(doc) {
   return pronunciation;
 }
 
-// Add this new function to update the popup content
 function getPopupContentElements(popupRoot) {
   return {
     googleContentElement: popupRoot.querySelector('.hlw-google-translation'),
@@ -2462,11 +2489,10 @@ function getPreferredVoice(lang) {
 function addToKnownWords(word) {
   const lowercaseWord = word.toLowerCase();
   if (!knownWords.has(lowercaseWord)) {
-    isAddingKnownWord = true; // 设置标志
     knownWords.add(lowercaseWord);
 
     hidePopup();
-    removeHighlight(lowercaseWord);
+    removeHighlightForWord(lowercaseWord);
 
     // 立即更新侧边栏，避免等待存储变化监听事件
     const wordList = document.getElementById('wordList');
@@ -2487,16 +2513,8 @@ function addToKnownWords(word) {
     // 延迟保存，避免立即触发存储变化监听器
     setTimeout(() => {
       saveKnownWords();
-      // 清除标志
-      setTimeout(() => {
-        isAddingKnownWord = false;
-      }, KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS);
     }, ADD_KNOWN_WORD_SAVE_DELAY_MS);
   }
-}
-
-function removeHighlight(word) {
-  removeHighlightForWord(word);
 }
 
 function getKnownWordsChunkIndex(key) {
@@ -2527,13 +2545,38 @@ function chunkKnownWords(words) {
   return chunks;
 }
 
+function beginKnownWordsSyncWrite() {
+  knownWordsSyncWriteDepth += 1;
+}
+
+function finishKnownWordsSyncWrite() {
+  setTimeout(() => {
+    knownWordsSyncWriteDepth = Math.max(0, knownWordsSyncWriteDepth - 1);
+  }, KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS);
+}
+
+function isKnownWordsSyncWriteInProgress() {
+  return knownWordsSyncWriteDepth > 0;
+}
+
+function completeStorageOperation(callback, success = true) {
+  if (callback) callback(success);
+}
+
 function setKnownWordsMetadata(wordCount, callback) {
   chrome.storage.sync.set(
     {
       knownWordsCount: wordCount,
       knownWordsUpdated: Date.now()
     },
-    callback
+    () => {
+      if (chrome.runtime.lastError) {
+        console.error(`Error saving known words metadata: ${chrome.runtime.lastError.message}`);
+        completeStorageOperation(callback, false);
+        return;
+      }
+      completeStorageOperation(callback, true);
+    }
   );
 }
 
@@ -2555,6 +2598,7 @@ function writeKnownWordChunks(chunks, wordCount, onComplete) {
         } else {
           console.error(`Error saving known words: ${errorMsg}`);
         }
+        completeStorageOperation(onComplete, false);
         return;
       }
       setTimeout(() => saveBatch(index + 1), STORAGE_SAVE_BATCH_DELAY_MS);
@@ -2566,27 +2610,54 @@ function writeKnownWordChunks(chunks, wordCount, onComplete) {
 
 function removeKeysThen(keysToRemove, callback) {
   if (!keysToRemove || keysToRemove.length === 0) {
-    callback();
+    completeStorageOperation(callback, true);
     return;
   }
 
   chrome.storage.sync.remove(keysToRemove, () => {
     if (chrome.runtime.lastError) {
       console.error(`Error removing known word keys: ${chrome.runtime.lastError.message}`);
+      completeStorageOperation(callback, false);
       return;
     }
-    callback();
+    completeStorageOperation(callback, true);
   });
 }
 
-function saveKnownWords() {
+function saveKnownWords(callback) {
+  beginKnownWordsSyncWrite();
+  const completeSave = (success = true) => {
+    finishKnownWordsSyncWrite();
+    completeStorageOperation(callback, success);
+  };
+
   try {
     const knownWordsArray = Array.from(knownWords);
 
     if (knownWordsArray.length === 0) {
       chrome.storage.sync.get(null, (items) => {
-        removeKeysThen(getKnownWordCleanupKeys(items), () => {
-          chrome.storage.sync.set({ knownWordsUpdated: Date.now() });
+        if (chrome.runtime.lastError) {
+          console.error(
+            `Error reading existing known word chunks: ${chrome.runtime.lastError.message}`
+          );
+          completeSave(false);
+          return;
+        }
+        removeKeysThen(getKnownWordCleanupKeys(items), (removed) => {
+          if (!removed) {
+            completeSave(false);
+            return;
+          }
+          chrome.storage.sync.set({ knownWordsUpdated: Date.now() }, () => {
+            if (chrome.runtime.lastError) {
+              console.error(
+                `Error saving known words clear marker: ${chrome.runtime.lastError.message}`
+              );
+              completeSave(false);
+              return;
+            }
+            completeSave(true);
+          });
         });
       });
       return;
@@ -2599,6 +2670,7 @@ function saveKnownWords() {
         console.error(
           `Error reading existing known word chunks: ${chrome.runtime.lastError.message}`
         );
+        completeSave(false);
         return;
       }
 
@@ -2606,14 +2678,25 @@ function saveKnownWords() {
         return chunkIndex >= chunks.length;
       });
 
-      const finishSave = () => {
-        removeKeysThen(staleChunkKeys, () => setKnownWordsMetadata(knownWordsArray.length));
+      const finishSave = (chunksSaved) => {
+        if (!chunksSaved) {
+          completeSave(false);
+          return;
+        }
+        removeKeysThen(staleChunkKeys, (removed) => {
+          if (!removed) {
+            completeSave(false);
+            return;
+          }
+          setKnownWordsMetadata(knownWordsArray.length, completeSave);
+        });
       };
 
       writeKnownWordChunks(chunks, knownWordsArray.length, finishSave);
     });
   } catch (error) {
     console.error('Error saving known words:', error);
+    completeSave(false);
   }
 }
 
@@ -2623,11 +2706,18 @@ function getSortedKnownWordChunkKeys(items) {
   });
 }
 
+function getKnownWordsMetadataCount(items) {
+  const count = items ? Number(items.knownWordsCount) : NaN;
+  return Number.isInteger(count) && count >= 0 ? count : null;
+}
+
 function readKnownWordsFromChunks(result, chunkKeys, totalWords) {
   const loadedWords = [];
   chunkKeys.forEach((key) => {
     const chunk = result[key] || [];
-    loadedWords.push(...chunk);
+    if (Array.isArray(chunk)) {
+      loadedWords.push(...chunk);
+    }
   });
   if (totalWords > 0 && loadedWords.length > totalWords) {
     loadedWords.length = totalWords;
@@ -2663,22 +2753,31 @@ function loadKnownWords(callback, retryCount = 0) {
         return;
       }
 
-      const totalWords = result.knownWordsCount || 0;
-
-      const expectedChunks = totalWords > 0 ? Math.ceil(totalWords / CHUNK_SIZE) : 0;
-
       const allChunkKeys = getSortedKnownWordChunkKeys(result);
-      const chunkKeys = allChunkKeys.filter((key) => getKnownWordsChunkIndex(key) < expectedChunks);
-      const staleChunkKeys = allChunkKeys.filter(
-        (key) => getKnownWordsChunkIndex(key) >= expectedChunks
-      );
+      const storedWordCount = getKnownWordsMetadataCount(result);
+      const hasMissingMetadata = storedWordCount === null && allChunkKeys.length > 0;
+      const totalWords = hasMissingMetadata ? 0 : storedWordCount || 0;
+      const expectedChunks = hasMissingMetadata
+        ? allChunkKeys.length
+        : Math.ceil(totalWords / CHUNK_SIZE);
+      const chunkKeys = hasMissingMetadata
+        ? allChunkKeys
+        : allChunkKeys.filter((key) => getKnownWordsChunkIndex(key) < expectedChunks);
+      const staleChunkKeys = hasMissingMetadata
+        ? []
+        : allChunkKeys.filter((key) => getKnownWordsChunkIndex(key) >= expectedChunks);
       if (staleChunkKeys.length > 0) {
         chrome.storage.sync.remove(staleChunkKeys);
       }
 
       const loadedWords = readKnownWordsFromChunks(result, chunkKeys, totalWords);
 
+      if (hasMissingMetadata) {
+        setKnownWordsMetadata(loadedWords.length);
+      }
+
       if (
+        !hasMissingMetadata &&
         reconcileLoadedKnownWordsCount(loadedWords, totalWords, chunkKeys, expectedChunks, {
           callback,
           retryCount
@@ -2707,69 +2806,6 @@ function loadKnownWords(callback, retryCount = 0) {
   }
 }
 
-// Migration function to move known words from local to sync storage
-function migrateKnownWordsToSync(callback) {
-  // First, check sync storage for existing data
-  chrome.storage.sync.get(null, (syncResult) => {
-    const syncWordCount = syncResult.knownWordsCount || 0;
-    const migrationCompleted = syncResult.migrationCompleted;
-
-    // If sync storage already has data, or migration was already completed, no need to migrate
-    // This handles the case where a new device is installed and data is synced from another device
-    if (syncWordCount > 0 || migrationCompleted) {
-      if (callback) callback();
-      return;
-    }
-
-    // No data in sync storage, try to migrate from local storage
-    chrome.storage.local.get(null, (localResult) => {
-      const localWordCount = localResult.knownWordsCount || 0;
-
-      // If there are no words in local storage either, mark migration as complete
-      if (localWordCount === 0) {
-        chrome.storage.sync.set({ migrationCompleted: true }, () => {
-          if (callback) callback();
-        });
-        return;
-      }
-
-      // Load all words from local storage
-      const chunkKeys = getSortedKnownWordChunkKeys(localResult).filter((key) => {
-        return getKnownWordsChunkIndex(key) < Math.ceil(localWordCount / CHUNK_SIZE);
-      });
-      const loadedWords = readKnownWordsFromChunks(localResult, chunkKeys, localWordCount);
-
-      if (loadedWords.length > 0) {
-        // Add words to the knownWords set
-        loadedWords.forEach((word) => knownWords.add(word.toLowerCase()));
-
-        // Save to sync storage
-        saveKnownWords();
-
-        // Mark migration as complete and clean up local storage
-        setTimeout(() => {
-          chrome.storage.sync.set({ migrationCompleted: true }, () => {
-            const keysToRemove = Object.keys(localResult).filter(
-              (key) =>
-                key.startsWith(STORAGE_KEY_PREFIX) ||
-                key === 'knownWordsCount' ||
-                key === 'knownWordsUpdated'
-            );
-            chrome.storage.local.remove(keysToRemove, () => {
-              if (callback) callback();
-            });
-          });
-        }, STORAGE_MIGRATION_SETTLE_DELAY_MS);
-      } else {
-        chrome.storage.sync.set({ migrationCompleted: true }, () => {
-          if (callback) callback();
-        });
-      }
-    });
-  });
-}
-
-// Add cleanup function
 function cleanup() {
   stopHighlightObserver();
   clearHighlightRefreshQueue();
@@ -2796,7 +2832,7 @@ function setupStorageChangedListener() {
         key.startsWith(STORAGE_KEY_PREFIX)
     );
 
-    if (hasKnownWordsChanges && !isAddingKnownWord) {
+    if (hasKnownWordsChanges && !isKnownWordsSyncWriteInProgress()) {
       // 当已知单词相关存储发生变化时，重新加载已知单词
       refreshKnownWordsFromStorage();
     }
@@ -2814,7 +2850,6 @@ function removeStorageChangedListener() {
   storageChangedListener = null;
 }
 
-// Modify the initialize function
 function initialize() {
   if (!isExtensionContextValid()) {
     return;
@@ -2822,20 +2857,17 @@ function initialize() {
   cleanup();
   initializeHighlighter();
 
-  // Migrate known words from local to sync storage (one-time operation)
-  migrateKnownWordsToSync(() => {
-    loadKnownWords(() => {
-      if (isTopLevelFrame()) {
-        createSidebar();
-        renderWordList();
+  loadKnownWords(() => {
+    if (isTopLevelFrame()) {
+      createSidebar();
+      renderWordList();
+    }
+    getCurrentSitePermission().then((isEnabled) => {
+      if (isEnabled) {
+        enableSiteFeatures();
+      } else {
+        disableSiteFeatures();
       }
-      getCurrentSitePermission().then((isEnabled) => {
-        if (isEnabled) {
-          enableSiteFeatures();
-        } else {
-          disableSiteFeatures();
-        }
-      });
     });
   });
 
@@ -2918,7 +2950,6 @@ function shouldSkipHoverProbe(clientX, clientY, target) {
   return false;
 }
 
-// Add this new function to handle mouse movement with better performance
 function handleMouseMove(event) {
   if (!siteEnabled) return;
 
@@ -3032,7 +3063,6 @@ if (!document.location.href.startsWith('chrome://') && !document.location.href.e
   }
 }
 
-// Modify the createSidebar function
 function getSidebarMarkup() {
   return `
     <div class="hlw-sidebar-header">
@@ -3169,7 +3199,6 @@ function readVocabularyFile(file) {
   });
 }
 
-// Modify the handleFileUpload function
 async function handleFileUpload(event) {
   const files = Array.from(event.target.files || []);
   event.target.value = '';
@@ -3282,7 +3311,6 @@ function renderFileList() {
   );
 }
 
-// Modify the deleteFile function
 function deleteFile(event) {
   const index = Number.parseInt(event.target.getAttribute('data-index'), 10);
   if (!Number.isInteger(index)) return;
@@ -3334,7 +3362,6 @@ try {
   console.error('Error setting up message listener:', error);
 }
 
-// Move these functions from sidebar.js to content.js
 function showContent(contentId) {
   const contents = document.querySelectorAll('.hlw-sidebar-content');
   contents.forEach((content) => content.classList.remove('hlw-active'));
@@ -3472,12 +3499,8 @@ function filterWords(event) {
   renderFilteredWords(filter);
 }
 
-// Modify the deleteWord function
 function deleteWord(word) {
   const lowercaseWord = word.toLowerCase();
-
-  // 设置标志，避免触发存储变化监听器
-  isAddingKnownWord = true;
 
   // 从 knownWords 中删除单词
   knownWords.delete(lowercaseWord);
@@ -3500,36 +3523,37 @@ function deleteWord(word) {
       if (highlightToggle || wordInSelectedFiles) {
         reHighlightWord(lowercaseWord);
       } else {
-        // 否则只移除高量
-        removeHighlight(lowercaseWord);
+        // 否则只移除高亮
+        removeHighlightForWord(lowercaseWord);
       }
 
       // 更新侧边栏单词列表
       renderWordList();
-
-      // 延迟清除标志
-      setTimeout(() => {
-        isAddingKnownWord = false;
-      }, KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS);
     }
   );
 }
 
-// Modify the clearAllWords function
 function clearAllWords() {
-  isAddingKnownWord = true;
   clearAllKnownWordsFromStorage(() => {
     renderWordList();
     updateHighlights();
-
-    setTimeout(() => {
-      isAddingKnownWord = false;
-    }, KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS);
   });
 }
 
 function clearAllKnownWordsFromStorage(callback) {
+  beginKnownWordsSyncWrite();
+  const completeClear = (success = true) => {
+    finishKnownWordsSyncWrite();
+    completeStorageOperation(callback, success);
+  };
+
   chrome.storage.sync.get(null, (items) => {
+    if (chrome.runtime.lastError) {
+      console.error(`Error reading known words for clear: ${chrome.runtime.lastError.message}`);
+      completeClear(false);
+      return;
+    }
+
     const keysToRemove = getKnownWordCleanupKeys(items);
 
     const finishClear = () => {
@@ -3539,8 +3563,10 @@ function clearAllKnownWordsFromStorage(callback) {
           console.error(
             `Error committing known words clear: ${chrome.runtime.lastError.message}`
           );
+          completeClear(false);
+          return;
         }
-        if (callback) callback();
+        completeClear(true);
       });
     };
 
@@ -3554,6 +3580,8 @@ function clearAllKnownWordsFromStorage(callback) {
       chrome.storage.sync.remove(batch, () => {
         if (chrome.runtime.lastError) {
           console.error(`Error clearing known words: ${chrome.runtime.lastError.message}`);
+          completeClear(false);
+          return;
         }
         setTimeout(
           () => removeBatch(index + STORAGE_CLEAR_BATCH_SIZE),
@@ -3622,7 +3650,6 @@ function showFileContent(event) {
   });
 }
 
-// Modify the deleteLine function
 function deleteLine(event, fileIndex) {
   const lineIndex = Number.parseInt(event.target.getAttribute('data-index'), 10);
   if (!Number.isInteger(lineIndex)) return;
@@ -3647,7 +3674,6 @@ function deleteLine(event, fileIndex) {
   });
 }
 
-// Add this new function to handle exporting known words
 function exportKnownWords() {
   const words = Array.from(knownWords).sort().join('\n');
   const blob = new Blob([words], { type: 'text/plain' });
@@ -3662,7 +3688,6 @@ function exportKnownWords() {
   URL.revokeObjectURL(url);
 }
 
-// Add this new function to handle the highlight toggle
 function toggleHighlight(event) {
   const isChecked = event.target.checked;
 
@@ -3685,7 +3710,6 @@ function toggleHighlight(event) {
   });
 }
 
-// Add a new function to handle file selection
 function toggleFileSelection(event) {
   const fileIndex = Number.parseInt(event.target.id.split('-')[1], 10);
   if (!Number.isInteger(fileIndex)) return;
@@ -3720,7 +3744,6 @@ function toggleFileSelection(event) {
   });
 }
 
-// 添加一个辅助函数来检查扩展程序上下文是否有效
 function isExtensionContextValid() {
   try {
     chrome.runtime.getURL('');
@@ -3750,12 +3773,10 @@ function toggleSitePermission(event) {
     let disabledSites = result.disabledSites || [];
 
     if (isEnabled) {
-      // ????????????
       disabledSites = disabledSites.filter((site) => site !== currentHost);
       enableSiteFeatures();
       updateHighlights();
     } else {
-      // ???????
       if (!disabledSites.includes(currentHost)) {
         disabledSites.push(currentHost);
       }
@@ -3782,7 +3803,6 @@ function initializeTextSelection() {
 
 function handleMouseDown(event) {
   isMouseDown = true;
-  selectedText = '';
   hideSelectionIcon();
 }
 
@@ -3934,7 +3954,6 @@ function showSelectionIcon(range, text) {
   bindSelectionIconEvents(selectionIcon, text, rect);
 
   document.body.appendChild(selectionIcon);
-  selectedText = text;
 }
 
 function hideSelectionIcon() {
@@ -3942,7 +3961,6 @@ function hideSelectionIcon() {
     document.body.removeChild(selectionIcon);
     selectionIcon = null;
   }
-  selectedText = '';
 }
 
 function handleSelectionIconClick(text, rect) {
