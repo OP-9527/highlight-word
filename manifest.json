@@ -13,6 +13,30 @@
       "css": ["styles.css"],
       "js": ["content.js"],
       "matches": ["\u003Call_urls>"],
+      "exclude_matches": [
+        "*://youtube.com/live_chat*",
+        "*://youtube.com/live_chat_replay*",
+        "*://*.youtube.com/live_chat*",
+        "*://*.youtube.com/live_chat_replay*",
+        "*://youtube-nocookie.com/live_chat*",
+        "*://youtube-nocookie.com/live_chat_replay*",
+        "*://*.youtube-nocookie.com/live_chat*",
+        "*://*.youtube-nocookie.com/live_chat_replay*"
+      ]
+    },
+    {
+      "css": ["styles.css"],
+      "js": ["content.js"],
+      "matches": [
+        "*://youtube.com/live_chat*",
+        "*://youtube.com/live_chat_replay*",
+        "*://*.youtube.com/live_chat*",
+        "*://*.youtube.com/live_chat_replay*",
+        "*://youtube-nocookie.com/live_chat*",
+        "*://youtube-nocookie.com/live_chat_replay*",
+        "*://*.youtube-nocookie.com/live_chat*",
+        "*://*.youtube-nocookie.com/live_chat_replay*"
+      ],
       "all_frames": true
     }
   ],

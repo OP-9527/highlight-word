@@ -18,8 +18,6 @@ const STORAGE_KEY_PREFIX = 'knownWords_';
 // chrome.storage.sync has an 8KB per-item limit, so known words stay chunked.
 const CHUNK_SIZE = 200;
 const STORAGE_SAVE_BATCH_DELAY_MS = 50;
-const STORAGE_CLEAR_BATCH_SIZE = 100;
-const STORAGE_CLEAR_BATCH_DELAY_MS = 200;
 const KNOWN_WORDS_SYNC_SUPPRESS_DELAY_MS = 200;
 const ADD_KNOWN_WORD_SAVE_DELAY_MS = 100;
 const STORAGE_LOAD_RETRY_DELAY_MS = 300;
@@ -50,6 +48,9 @@ let popupHideTimer = null;
 let translationCache = new Map();
 let currentTranslationController = null;
 let knownWordsSyncWriteDepth = 0;
+let knownWordsSaveInProgress = false;
+let knownWordsSaveQueued = false;
+let knownWordsSaveCallbacks = [];
 let selectionIcon = null;
 let selectionTimeout = null;
 let isMouseDown = false;
@@ -2531,12 +2532,6 @@ function getKnownWordStorageKeys(items, predicate = () => true) {
   });
 }
 
-function getKnownWordCleanupKeys(items) {
-  return Object.keys(items || {}).filter(
-    (key) => key.startsWith(STORAGE_KEY_PREFIX) || key === 'knownWordsCount'
-  );
-}
-
 function chunkKnownWords(words) {
   const chunks = [];
   for (let i = 0; i < words.length; i += CHUNK_SIZE) {
@@ -2563,27 +2558,35 @@ function completeStorageOperation(callback, success = true) {
   if (callback) callback(success);
 }
 
-function setKnownWordsMetadata(wordCount, callback) {
-  chrome.storage.sync.set(
-    {
-      knownWordsCount: wordCount,
-      knownWordsUpdated: Date.now()
-    },
-    () => {
-      if (chrome.runtime.lastError) {
-        console.error(`Error saving known words metadata: ${chrome.runtime.lastError.message}`);
-        completeStorageOperation(callback, false);
-        return;
-      }
-      completeStorageOperation(callback, true);
+function flushKnownWordsSaveCallbacks(success) {
+  const callbacks = knownWordsSaveCallbacks;
+  knownWordsSaveCallbacks = [];
+  callbacks.forEach((callback) => completeStorageOperation(callback, success));
+}
+
+function setKnownWordsMetadata(wordCount, chunkCount, callback, options = {}) {
+  const metadata = {
+    knownWordsCount: wordCount,
+    knownWordsChunkCount: chunkCount
+  };
+  if (options.commit !== false) {
+    metadata.knownWordsUpdated = Date.now();
+  }
+
+  chrome.storage.sync.set(metadata, () => {
+    if (chrome.runtime.lastError) {
+      console.error(`Error saving known words metadata: ${chrome.runtime.lastError.message}`);
+      completeStorageOperation(callback, false);
+      return;
     }
-  );
+    completeStorageOperation(callback, true);
+  });
 }
 
 function writeKnownWordChunks(chunks, wordCount, onComplete) {
   const saveBatch = (index) => {
     if (index >= chunks.length) {
-      onComplete();
+      completeStorageOperation(onComplete, true);
       return;
     }
 
@@ -2624,7 +2627,7 @@ function removeKeysThen(keysToRemove, callback) {
   });
 }
 
-function saveKnownWords(callback) {
+function persistKnownWordsSnapshot(knownWordsArray, callback) {
   beginKnownWordsSyncWrite();
   const completeSave = (success = true) => {
     finishKnownWordsSyncWrite();
@@ -2632,8 +2635,6 @@ function saveKnownWords(callback) {
   };
 
   try {
-    const knownWordsArray = Array.from(knownWords);
-
     if (knownWordsArray.length === 0) {
       chrome.storage.sync.get(null, (items) => {
         if (chrome.runtime.lastError) {
@@ -2643,19 +2644,13 @@ function saveKnownWords(callback) {
           completeSave(false);
           return;
         }
-        removeKeysThen(getKnownWordCleanupKeys(items), (removed) => {
-          if (!removed) {
+        const staleChunkKeys = getKnownWordStorageKeys(items);
+        setKnownWordsMetadata(0, 0, (metadataSaved) => {
+          if (!metadataSaved) {
             completeSave(false);
             return;
           }
-          chrome.storage.sync.set({ knownWordsUpdated: Date.now() }, () => {
-            if (chrome.runtime.lastError) {
-              console.error(
-                `Error saving known words clear marker: ${chrome.runtime.lastError.message}`
-              );
-              completeSave(false);
-              return;
-            }
+          removeKeysThen(staleChunkKeys, () => {
             completeSave(true);
           });
         });
@@ -2688,7 +2683,7 @@ function saveKnownWords(callback) {
             completeSave(false);
             return;
           }
-          setKnownWordsMetadata(knownWordsArray.length, completeSave);
+          setKnownWordsMetadata(knownWordsArray.length, chunks.length, completeSave);
         });
       };
 
@@ -2700,6 +2695,33 @@ function saveKnownWords(callback) {
   }
 }
 
+function runKnownWordsSave() {
+  knownWordsSaveInProgress = true;
+  const snapshot = Array.from(knownWords);
+
+  persistKnownWordsSnapshot(snapshot, (success) => {
+    if (knownWordsSaveQueued) {
+      knownWordsSaveQueued = false;
+      runKnownWordsSave();
+      return;
+    }
+
+    knownWordsSaveInProgress = false;
+    flushKnownWordsSaveCallbacks(success);
+  });
+}
+
+function saveKnownWords(callback) {
+  if (callback) knownWordsSaveCallbacks.push(callback);
+
+  if (knownWordsSaveInProgress) {
+    knownWordsSaveQueued = true;
+    return;
+  }
+
+  runKnownWordsSave();
+}
+
 function getSortedKnownWordChunkKeys(items) {
   return getKnownWordStorageKeys(items).sort((a, b) => {
     return getKnownWordsChunkIndex(a) - getKnownWordsChunkIndex(b);
@@ -2708,6 +2730,11 @@ function getSortedKnownWordChunkKeys(items) {
 
 function getKnownWordsMetadataCount(items) {
   const count = items ? Number(items.knownWordsCount) : NaN;
+  return Number.isInteger(count) && count >= 0 ? count : null;
+}
+
+function getKnownWordsMetadataChunkCount(items) {
+  const count = items ? Number(items.knownWordsChunkCount) : NaN;
   return Number.isInteger(count) && count >= 0 ? count : null;
 }
 
@@ -2740,7 +2767,7 @@ function reconcileLoadedKnownWordsCount(loadedWords, totalWords, chunkKeys, expe
   if (loadedWords.length <= totalWords) {
     console.warn(`Word count mismatch! Expected: ${totalWords}, Loaded: ${loadedWords.length}`);
   }
-  setKnownWordsMetadata(loadedWords.length);
+  setKnownWordsMetadata(loadedWords.length, chunkKeys.length, null, { commit: false });
   return false;
 }
 
@@ -2755,15 +2782,19 @@ function loadKnownWords(callback, retryCount = 0) {
 
       const allChunkKeys = getSortedKnownWordChunkKeys(result);
       const storedWordCount = getKnownWordsMetadataCount(result);
-      const hasMissingMetadata = storedWordCount === null && allChunkKeys.length > 0;
-      const totalWords = hasMissingMetadata ? 0 : storedWordCount || 0;
-      const expectedChunks = hasMissingMetadata
+      const storedChunkCount = getKnownWordsMetadataChunkCount(result);
+      const hasChunkData = allChunkKeys.length > 0;
+      const hasMissingWordCount = storedWordCount === null && hasChunkData;
+      const hasMissingChunkCount = storedChunkCount === null && hasChunkData;
+      const hasMissingMetadata = hasMissingWordCount || hasMissingChunkCount;
+      const totalWords = storedWordCount === null ? 0 : storedWordCount;
+      const expectedChunks = hasMissingWordCount
         ? allChunkKeys.length
-        : Math.ceil(totalWords / CHUNK_SIZE);
-      const chunkKeys = hasMissingMetadata
-        ? allChunkKeys
-        : allChunkKeys.filter((key) => getKnownWordsChunkIndex(key) < expectedChunks);
-      const staleChunkKeys = hasMissingMetadata
+        : storedChunkCount === null
+          ? Math.ceil(totalWords / CHUNK_SIZE)
+          : storedChunkCount;
+      const chunkKeys = allChunkKeys.filter((key) => getKnownWordsChunkIndex(key) < expectedChunks);
+      const staleChunkKeys = hasMissingWordCount
         ? []
         : allChunkKeys.filter((key) => getKnownWordsChunkIndex(key) >= expectedChunks);
       if (staleChunkKeys.length > 0) {
@@ -2773,7 +2804,7 @@ function loadKnownWords(callback, retryCount = 0) {
       const loadedWords = readKnownWordsFromChunks(result, chunkKeys, totalWords);
 
       if (hasMissingMetadata) {
-        setKnownWordsMetadata(loadedWords.length);
+        setKnownWordsMetadata(loadedWords.length, chunkKeys.length, null, { commit: false });
       }
 
       if (
@@ -2794,9 +2825,6 @@ function loadKnownWords(callback, retryCount = 0) {
       if (sidebarOpen) {
         renderWordList();
       }
-
-      // Clear the update flag
-      chrome.storage.sync.remove('knownWordsUpdated');
 
       if (callback) callback();
     });
@@ -2825,14 +2853,12 @@ function setupStorageChangedListener() {
   storageChangedListener = (changes, namespace) => {
     if (namespace !== 'sync') return;
 
-    const hasKnownWordsChanges = Object.keys(changes).some(
-      (key) =>
-        key === 'knownWordsUpdated' ||
-        key === 'knownWordsCount' ||
-        key.startsWith(STORAGE_KEY_PREFIX)
-    );
+    const hasCommittedKnownWordsUpdate =
+      Object.prototype.hasOwnProperty.call(changes, 'knownWordsUpdated') &&
+      changes.knownWordsUpdated &&
+      changes.knownWordsUpdated.newValue !== undefined;
 
-    if (hasKnownWordsChanges && !isKnownWordsSyncWriteInProgress()) {
+    if (hasCommittedKnownWordsUpdate && !isKnownWordsSyncWriteInProgress()) {
       // 当已知单词相关存储发生变化时，重新加载已知单词
       refreshKnownWordsFromStorage();
     }
@@ -3534,63 +3560,19 @@ function deleteWord(word) {
 }
 
 function clearAllWords() {
-  clearAllKnownWordsFromStorage(() => {
-    renderWordList();
-    updateHighlights();
-  });
-}
+  const previousKnownWords = new Set(knownWords);
+  knownWords.clear();
 
-function clearAllKnownWordsFromStorage(callback) {
-  beginKnownWordsSyncWrite();
-  const completeClear = (success = true) => {
-    finishKnownWordsSyncWrite();
-    completeStorageOperation(callback, success);
-  };
-
-  chrome.storage.sync.get(null, (items) => {
-    if (chrome.runtime.lastError) {
-      console.error(`Error reading known words for clear: ${chrome.runtime.lastError.message}`);
-      completeClear(false);
+  saveKnownWords((success) => {
+    if (!success) {
+      knownWords = previousKnownWords;
+      console.error('Known words were not cleared because sync storage did not commit.');
+      renderWordList();
       return;
     }
 
-    const keysToRemove = getKnownWordCleanupKeys(items);
-
-    const finishClear = () => {
-      knownWords.clear();
-      chrome.storage.sync.set({ knownWordsUpdated: Date.now() }, () => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            `Error committing known words clear: ${chrome.runtime.lastError.message}`
-          );
-          completeClear(false);
-          return;
-        }
-        completeClear(true);
-      });
-    };
-
-    const removeBatch = (index) => {
-      const batch = keysToRemove.slice(index, index + STORAGE_CLEAR_BATCH_SIZE);
-      if (batch.length === 0) {
-        finishClear();
-        return;
-      }
-
-      chrome.storage.sync.remove(batch, () => {
-        if (chrome.runtime.lastError) {
-          console.error(`Error clearing known words: ${chrome.runtime.lastError.message}`);
-          completeClear(false);
-          return;
-        }
-        setTimeout(
-          () => removeBatch(index + STORAGE_CLEAR_BATCH_SIZE),
-          STORAGE_CLEAR_BATCH_DELAY_MS
-        );
-      });
-    };
-
-    removeBatch(0);
+    renderWordList();
+    updateHighlights();
   });
 }
 
