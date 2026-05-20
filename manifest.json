@@ -54,7 +54,7 @@
   "name": "English Word Highlighter",
   "permissions": ["storage", "activeTab"],
   "update_url": "https://clients2.google.com/service/update2/crx",
-  "version": "1.22",
+  "version": "1.23",
   "web_accessible_resources": [
     {
       "matches": ["\u003Call_urls>"],
