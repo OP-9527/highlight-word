@@ -1,7 +1,6 @@
 /* Root Variables */
 .hlw-root {
   --hlw-font-sans: Arial, Helvetica, sans-serif !important;
-  --hlw-font-mono: 'SF Mono', 'Menlo', 'Consolas', monospace !important;
   --primary-color: #4a90e2 !important;
   --secondary-color: #f5f7fa !important;
   --text-color: #333 !important;
@@ -18,8 +17,6 @@
 
 /* Word Popup Styles */
 .hlw-word-popup {
-  position: absolute !important;
-  z-index: 9999 !important;
   background: #ffffff !important;
   border-radius: 16px !important;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18) !important;
@@ -54,22 +51,11 @@
 
 /* Word Known Button Styles */
 .hlw-word-known {
-  width: 24px !important;
-  height: 24px !important;
-  background: #49c57b !important;
-  border: 1px solid #3cad68 !important;
-  border-radius: 6px !important;
+  background: transparent !important;
+  border: 0 !important;
   cursor: pointer !important;
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  color: #ffffff !important;
-  line-height: 1 !important;
-  margin: 0 !important;
-  padding: 0 !important;
+  font-size: 20px !important;
   user-select: none !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
 }
 
 .hlw-hide-known .hlw-word-known {
@@ -77,9 +63,7 @@
 }
 
 .hlw-word-known:hover {
-  opacity: 1 !important;
-  background: #3bb46a !important;
-  border-color: #2f9d5b !important;
+  transform: scale(1.15) !important;
 }
 
 .hlw-word-content {
@@ -90,12 +74,6 @@
 
 /* Translation Container Styles */
 .hlw-google-translation-container {
-  padding: 0 !important;
-  background: transparent !important;
-  border-radius: 0 !important;
-  border: none !important;
-  margin-bottom: 0 !important;
-  display: block !important;
   flex: 1 1 auto !important;
   min-width: 0 !important;
 }
@@ -125,10 +103,6 @@
   white-space: nowrap !important;
   margin-top: 6px !important;
   margin-bottom: 0 !important;
-  padding: 0 !important;
-  border-radius: 0 !important;
-  border: none !important;
-  background: transparent !important;
   flex: 0 0 auto !important;
 }
 
@@ -157,14 +131,11 @@
   display: inline-flex !important;
   align-items: baseline !important;
   white-space: nowrap !important;
-  width: auto !important;
   flex: 0 0 auto !important;
   font-family: var(--hlw-font-sans) !important;
   font-size: 13px !important;
   color: #1f2937 !important;
-  height: auto !important;
   cursor: pointer !important;
-  margin-right: 0 !important;
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
@@ -175,7 +146,6 @@
   color: #0f9d58 !important;
   font-weight: 600 !important;
   min-width: 30px !important;
-  float: none !important;
   display: inline-block !important;
   margin-right: 6px !important;
 }
@@ -220,7 +190,6 @@
   background: #f1f5f9 !important;
   border: 1px solid rgba(15, 23, 42, 0.06) !important;
   border-radius: 999px !important;
-  margin-top: 0 !important;
 }
 
 /* Sidebar Styles */
@@ -254,7 +223,6 @@
   overflow-y: auto !important;
   flex-grow: 1 !important;
   scrollbar-width: none !important;
-  -ms-overflow-style: none !important;
 }
 
 .hlw-sidebar-content.hlw-active {
@@ -269,7 +237,6 @@
   align-items: center !important;
   padding: 18px !important;
   margin-left: 25px !important;
-  border-bottom: 1px solid var(--border-color) !important;
   transition: var(--transition) !important;
 }
 
@@ -277,7 +244,6 @@
   font-size: 24px !important;
   font-weight: bold !important;
   color: var(--text-color) !important;
-  align-items: center !important;
 }
 
 /* Button Styles */
@@ -285,16 +251,7 @@
   display: flex !important;
   justify-content: space-between !important;
   margin-bottom: 20px !important;
-  position: relative !important;
-  transform: none !important;
-  height: auto !important;
   width: 280px !important;
-  right: auto !important;
-  top: auto !important;
-  float: none !important;
-  pointer-events: auto !important;
-  transition: none !important;
-  opacity: 1 !important;
 }
 
 .hlw-vocabulary-button,
@@ -342,7 +299,6 @@
   justify-content: space-between !important;
   margin-bottom: 10px !important;
   padding-bottom: 10px !important;
-  border-bottom: 1px solid var(--border-color) !important;
 }
 
 /* Back Button Styles */
@@ -387,7 +343,6 @@
   margin: 0 !important;
   flex-grow: 1 !important;
   overflow-y: auto !important;
-  -ms-overflow-style: none !important;
 }
 
 .hlw-learned-word-item,
@@ -471,12 +426,6 @@
 
 .hlw-file-item:hover button {
   opacity: 1 !important;
-}
-
-/* Link Styles */
-.hlw-sidebar-content a:-webkit-any-link {
-  text-decoration: none !important;
-  cursor: pointer !important;
 }
 
 /* Content Item Styles */

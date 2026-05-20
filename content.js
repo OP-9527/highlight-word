@@ -2277,10 +2277,7 @@ function createPopupBody(word, hideKnownButton) {
   popupBody.innerHTML = `
     <div class="hlw-word-header">
       <h2 class="hlw-word-h2"></h2>
-      <button
-        class="hlw-word-known"
-        ${hideKnownButton ? 'style="display: none;"' : ''}
-      >&#x2713;</button>
+      <button class="hlw-word-known" ${hideKnownButton ? 'style="display: none;"' : ''}>&#x2705;</button>
     </div>
 
     <div class="hlw-word-content">
