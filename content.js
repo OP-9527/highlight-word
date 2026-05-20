@@ -245,6 +245,7 @@ function ensureDomContentLoadedListener() {
   domContentLoadedHandler = () => {
     if (!siteEnabled) return;
     chrome.storage.local.get(['highlightToggle', 'selectedFiles'], function (result) {
+      if (hasChromeStorageLastError('Error loading highlight settings')) return;
       if (result.highlightToggle || (result.selectedFiles && result.selectedFiles.length > 0)) {
         requestAnimationFrame(() => {
           updateHighlights();
@@ -848,8 +849,7 @@ function queueMutationRecords(mutations) {
 function createMutationProcessingContext() {
   return {
     textNodesToRefresh: new Set(),
-    rootsToProcess: new Set(),
-    cleanedRanges: 0
+    rootsToProcess: new Set()
   };
 }
 
@@ -868,7 +868,7 @@ function collectAttributeMutation(mutation, context) {
   if (!target || target.nodeType !== Node.ELEMENT_NODE || shouldIgnoreMutationNode(target)) return;
 
   observeOpenShadowRoots(target);
-  context.cleanedRanges += clearHighlightsInSubtreeAndOpenShadowRoots(target);
+  clearHighlightsInSubtreeAndOpenShadowRoots(target);
   context.rootsToProcess.add(target);
 }
 
@@ -876,7 +876,7 @@ function collectChildListMutation(mutation, context) {
   mutation.removedNodes.forEach((node) => {
     disconnectShadowRootObserversInSubtree(node);
     if (shouldIgnoreMutationNode(node)) return;
-    context.cleanedRanges += clearHighlightsInSubtreeAndOpenShadowRoots(node);
+    clearHighlightsInSubtreeAndOpenShadowRoots(node);
   });
 
   mutation.addedNodes.forEach((node) => {
@@ -910,17 +910,13 @@ function collectIncrementalHighlightWork(mutations) {
 }
 
 function refreshMutatedTextNodes(textNodes, wordsSet, visibilityCache) {
-  let cleanedRanges = 0;
-
   textNodes.forEach((textNode) => {
-    cleanedRanges += clearHighlightsForTextNode(textNode);
+    clearHighlightsForTextNode(textNode);
     if (!textNode || textNode.nodeType !== Node.TEXT_NODE || !textNode.isConnected) return;
     const parentElement = textNode.parentElement;
     if (!parentElement || !shouldProcessNode(parentElement) || isInWordPopup(parentElement)) return;
     highlightWordsInTextNode(textNode, wordsSet, visibilityCache);
   });
-
-  return cleanedRanges;
 }
 
 function getConnectedTopLevelRoots(rootsToProcess) {
@@ -958,7 +954,7 @@ function processMutationsIncrementally(mutations) {
   const visibilityCache = new WeakMap();
   const work = collectIncrementalHighlightWork(mutations);
 
-  work.cleanedRanges += refreshMutatedTextNodes(work.textNodesToRefresh, wordsSet, visibilityCache);
+  refreshMutatedTextNodes(work.textNodesToRefresh, wordsSet, visibilityCache);
   refreshMutatedRoots(work.rootsToProcess, wordsSet, visibilityCache);
 }
 
@@ -1429,6 +1425,12 @@ function updateHighlights() {
   }
 }
 
+function hasChromeStorageLastError(action) {
+  if (!chrome.runtime.lastError) return false;
+  console.error(`${action}: ${chrome.runtime.lastError.message}`);
+  return true;
+}
+
 async function getTranslation(word, signal) {
   const cacheKey = word.toLowerCase();
   const cachedResult = getCachedTranslation(cacheKey);
@@ -1458,8 +1460,9 @@ async function getTranslation(word, signal) {
       } else if (response.error) {
         reject(new Error(response.error));
       } else {
-        cacheTranslation(cacheKey, response);
-        resolve(response);
+        const translationData = extractPopupTranslationData(word, response);
+        cacheTranslation(cacheKey, translationData);
+        resolve(translationData);
       }
     });
   });
@@ -1645,10 +1648,9 @@ async function showPopup(event) {
   const session = beginPopupSession(payload.word, payload.rect, payload.hideKnownButton);
 
   try {
-    const translationResponse = await fetchTranslationWithAbort(payload.word, session.signal);
+    const translationData = await fetchTranslationWithAbort(payload.word, session.signal);
     if (isPopupSessionStale(session)) return;
 
-    const translationData = extractPopupTranslationData(payload.word, translationResponse);
     updatePopupContent(
       session.popup,
       translationData.googleTranslation,
@@ -2513,7 +2515,14 @@ function addToKnownWords(word) {
 
     // 延迟保存，避免立即触发存储变化监听器
     setTimeout(() => {
-      saveKnownWords();
+      saveKnownWords((success) => {
+        if (!success) {
+          knownWords.delete(lowercaseWord);
+          console.error('Known word was not added because sync storage did not commit.');
+          reHighlightWord(lowercaseWord);
+          renderWordList();
+        }
+      });
     }, ADD_KNOWN_WORD_SAVE_DELAY_MS);
   }
 }
@@ -2645,14 +2654,12 @@ function persistKnownWordsSnapshot(knownWordsArray, callback) {
           return;
         }
         const staleChunkKeys = getKnownWordStorageKeys(items);
-        setKnownWordsMetadata(0, 0, (metadataSaved) => {
-          if (!metadataSaved) {
+        removeKeysThen(staleChunkKeys, (removed) => {
+          if (!removed) {
             completeSave(false);
             return;
           }
-          removeKeysThen(staleChunkKeys, () => {
-            completeSave(true);
-          });
+          setKnownWordsMetadata(0, 0, completeSave);
         });
       });
       return;
@@ -3251,6 +3258,7 @@ async function handleFileUpload(event) {
 
     const uploadedFiles = [...(result.uploadedFiles || []), ...fileInfos];
     chrome.storage.local.set({ uploadedFiles }, function () {
+      if (hasChromeStorageLastError('Error saving uploaded files')) return;
       renderFileList();
       updateHighlights();
     });
@@ -3310,12 +3318,14 @@ function renderFileList() {
   chrome.storage.local.get(
     ['uploadedFiles', 'selectedFiles', 'highlightToggle'],
     function (result) {
+      if (hasChromeStorageLastError('Error loading uploaded files')) return;
       const uploadedFiles = result.uploadedFiles || [];
       const selectedFiles = result.selectedFiles || [];
 
       // 如果 highlightToggle 未定义（首次使用），则设置为 true
       if (result.highlightToggle === undefined) {
         chrome.storage.local.set({ highlightToggle: true }, () => {
+          if (hasChromeStorageLastError('Error saving default highlight toggle')) return;
           // 设置完默认值后更新高亮
           updateHighlights();
         });
@@ -3342,6 +3352,7 @@ function deleteFile(event) {
   if (!Number.isInteger(index)) return;
 
   chrome.storage.local.get(['uploadedFiles', 'selectedFiles'], function (result) {
+    if (hasChromeStorageLastError('Error loading uploaded files')) return;
     let uploadedFiles = result.uploadedFiles || [];
     let selectedFiles = result.selectedFiles || [];
 
@@ -3354,6 +3365,7 @@ function deleteFile(event) {
     chrome.storage.local.set(
       { uploadedFiles: uploadedFiles, selectedFiles: selectedFiles },
       function () {
+        if (hasChromeStorageLastError('Error deleting uploaded file')) return;
         renderFileList();
         updateHighlights();
       }
@@ -3472,17 +3484,24 @@ function importKnownWords() {
           .map((word) => word.trim().toLowerCase())
           .filter((word) => word);
 
-        let importedCount = 0;
+        const importedWords = [];
         words.forEach((word) => {
           if (!knownWords.has(word)) {
             knownWords.add(word);
-            importedCount += 1;
+            importedWords.push(word);
           }
         });
 
-        if (importedCount > 0) {
-          saveKnownWords();
-          updateHighlights();
+        if (importedWords.length > 0) {
+          saveKnownWords((success) => {
+            if (!success) {
+              importedWords.forEach((word) => knownWords.delete(word));
+              console.error('Imported known words were not saved because sync storage did not commit.');
+              renderWordList();
+              return;
+            }
+            updateHighlights();
+          });
         }
         renderWordList();
       };
@@ -3527,36 +3546,45 @@ function filterWords(event) {
 
 function deleteWord(word) {
   const lowercaseWord = word.toLowerCase();
+  const hadWord = knownWords.has(lowercaseWord);
 
   // 从 knownWords 中删除单词
   knownWords.delete(lowercaseWord);
 
   // 立即保存更新后的 knownWords
-  saveKnownWords();
-
-  // 检查是否需要重新高亮该单词
-  chrome.storage.local.get(
-    ['highlightToggle', 'selectedFiles', 'uploadedFiles'],
-    function (result) {
-      const highlightToggle = result.highlightToggle;
-      const selectedFiles = result.selectedFiles || [];
-      const uploadedFiles = result.uploadedFiles || [];
-
-      const selectedWords = buildSelectedWordsSet(selectedFiles, uploadedFiles);
-      const wordInSelectedFiles = selectedWords.has(lowercaseWord);
-
-      // 如果开启了全部高亮或单词在选中的文件中，则重新高亮该单词
-      if (highlightToggle || wordInSelectedFiles) {
-        reHighlightWord(lowercaseWord);
-      } else {
-        // 否则只移除高亮
-        removeHighlightForWord(lowercaseWord);
-      }
-
-      // 更新侧边栏单词列表
+  saveKnownWords((success) => {
+    if (!success && hadWord) {
+      knownWords.add(lowercaseWord);
+      console.error('Known word was not deleted because sync storage did not commit.');
       renderWordList();
+      return;
     }
-  );
+
+    // 检查是否需要重新高亮该单词
+    chrome.storage.local.get(
+      ['highlightToggle', 'selectedFiles', 'uploadedFiles'],
+      function (result) {
+        if (hasChromeStorageLastError('Error loading highlight settings')) return;
+        const highlightToggle = result.highlightToggle;
+        const selectedFiles = result.selectedFiles || [];
+        const uploadedFiles = result.uploadedFiles || [];
+
+        const selectedWords = buildSelectedWordsSet(selectedFiles, uploadedFiles);
+        const wordInSelectedFiles = selectedWords.has(lowercaseWord);
+
+        // 如果开启了全部高亮或单词在选中的文件中，则重新高亮该单词
+        if (highlightToggle || wordInSelectedFiles) {
+          reHighlightWord(lowercaseWord);
+        } else {
+          // 否则只移除高亮
+          removeHighlightForWord(lowercaseWord);
+        }
+
+        // 更新侧边栏单词列表
+        renderWordList();
+      }
+    );
+  });
 }
 
 function clearAllWords() {
@@ -3604,6 +3632,7 @@ function showFileContent(event) {
   event.preventDefault();
   const fileIndex = event.target.getAttribute('for').split('-')[1];
   chrome.storage.local.get(['uploadedFiles'], function (result) {
+    if (hasChromeStorageLastError('Error loading uploaded files')) return;
     const uploadedFiles = result.uploadedFiles || [];
     const fileInfo = uploadedFiles[fileIndex];
 
@@ -3636,6 +3665,7 @@ function deleteLine(event, fileIndex) {
   const lineIndex = Number.parseInt(event.target.getAttribute('data-index'), 10);
   if (!Number.isInteger(lineIndex)) return;
   chrome.storage.local.get(['uploadedFiles'], function (result) {
+    if (hasChromeStorageLastError('Error loading uploaded files')) return;
     let uploadedFiles = result.uploadedFiles || [];
     let fileInfo = uploadedFiles[fileIndex];
     if (fileInfo && fileInfo.content) {
@@ -3644,6 +3674,7 @@ function deleteLine(event, fileIndex) {
       fileInfo.content = content.join('\n');
       uploadedFiles[fileIndex] = fileInfo;
       chrome.storage.local.set({ uploadedFiles: uploadedFiles }, function () {
+        if (hasChromeStorageLastError('Error deleting vocabulary file line')) return;
         updateHighlights();
         showFileContent({
           preventDefault: () => {},
@@ -3675,6 +3706,10 @@ function toggleHighlight(event) {
 
   // 保存 highlight toggle 状态
   chrome.storage.local.set({ highlightToggle: isChecked }, () => {
+    if (hasChromeStorageLastError('Error saving highlight toggle')) {
+      event.target.checked = !isChecked;
+      return;
+    }
     if (isChecked) {
       // 如果开启了 highlight all，取消所有文件的选择
       const fileCheckboxes = document.querySelectorAll('.hlw-file-checkbox');
@@ -3684,6 +3719,10 @@ function toggleHighlight(event) {
 
       // 清空已选文件列表
       chrome.storage.local.set({ selectedFiles: [] }, () => {
+        if (hasChromeStorageLastError('Error clearing selected vocabulary files')) {
+          renderFileList();
+          return;
+        }
         updateHighlights();
       });
     } else {
@@ -3698,6 +3737,10 @@ function toggleFileSelection(event) {
   const isChecked = event.target.checked;
 
   chrome.storage.local.get(['selectedFiles'], function (result) {
+    if (hasChromeStorageLastError('Error loading selected vocabulary files')) {
+      renderFileList();
+      return;
+    }
     let selectedFiles = result.selectedFiles || [];
     const updates = {};
 
@@ -3721,6 +3764,10 @@ function toggleFileSelection(event) {
 
     // 保存选中文件的状态并更新高亮
     chrome.storage.local.set({ ...updates, selectedFiles: selectedFiles }, () => {
+      if (hasChromeStorageLastError('Error saving selected vocabulary files')) {
+        renderFileList();
+        return;
+      }
       updateHighlights();
     });
   });
@@ -3740,6 +3787,10 @@ function getCurrentSitePermission() {
   return new Promise((resolve) => {
     const currentHost = window.location.hostname;
     chrome.storage.local.get(['disabledSites'], (result) => {
+      if (hasChromeStorageLastError('Error loading site permission')) {
+        resolve(true);
+        return;
+      }
       const disabledSites = result.disabledSites || [];
       resolve(!disabledSites.includes(currentHost));
     });
@@ -3752,20 +3803,31 @@ function toggleSitePermission(event) {
   const currentHost = window.location.hostname;
 
   chrome.storage.local.get(['disabledSites'], (result) => {
+    if (hasChromeStorageLastError('Error loading site permission')) {
+      event.target.checked = !isEnabled;
+      return;
+    }
     let disabledSites = result.disabledSites || [];
 
     if (isEnabled) {
       disabledSites = disabledSites.filter((site) => site !== currentHost);
-      enableSiteFeatures();
-      updateHighlights();
     } else {
       if (!disabledSites.includes(currentHost)) {
         disabledSites.push(currentHost);
       }
-      disableSiteFeatures();
     }
 
-    chrome.storage.local.set({ disabledSites }, () => {});
+    chrome.storage.local.set({ disabledSites }, () => {
+      if (hasChromeStorageLastError('Error saving site permission')) {
+        event.target.checked = !isEnabled;
+        return;
+      }
+      if (isEnabled) {
+        enableSiteFeatures();
+      } else {
+        disableSiteFeatures();
+      }
+    });
   });
 }
 
