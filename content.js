@@ -57,105 +57,126 @@ let isMouseDown = false;
 let popupStylesText = null;
 let popupStylesPromise = null;
 let currentPopupRequestId = 0;
-const HIGH_CHURN_TEXT_CONTAINER_SELECTOR = [
-  'video',
-  'audio',
-  'canvas',
-  '[aria-live="polite"]',
-  '[aria-live="assertive"]'
-].join(',');
-const STATIC_INTERACTIVE_TEXT_SELECTOR = [
-  'a[href]',
-  'button',
-  '[role="button"]',
-  '[role="link"]',
-  '[role="menuitem"]',
-  '[role="option"]',
-  '[role="tab"]',
-  'nav'
-].join(',');
-const TWITTER_EDITOR_PLACEHOLDER_SELECTOR = [
-  '.public-DraftEditorPlaceholder-root',
-  '.public-DraftEditorPlaceholder-inner'
-].join(',');
-const YOUTUBE_HIGH_CHURN_TEXT_CONTAINER_SELECTOR = [
-  'ytd-player',
-  '#player',
-  '#movie_player',
-  '.html5-video-player',
-  '.ytp-chrome-bottom',
-  '.ytp-tooltip',
-  'tp-yt-paper-tooltip',
-  'ytd-miniplayer',
-  'ytd-live-chat-frame',
-  'yt-live-chat-app',
-  '#chat',
-  '#chatframe'
-].join(',');
-const YOUTUBE_CAPTION_TEXT_CONTAINER_SELECTOR = [
-  '.ytp-caption-window-container',
-  '.caption-window',
-  '.ytp-caption-segment-container',
-  '.ytp-caption-segment'
-].join(',');
-const YOUTUBE_LIVE_CHAT_TEXT_CONTAINER_SELECTOR = [
-  'yt-live-chat-text-message-renderer',
-  'yt-live-chat-paid-message-renderer',
-  'yt-live-chat-paid-sticker-renderer',
-  'yt-live-chat-membership-item-renderer',
-  'yt-live-chat-viewer-engagement-message-renderer',
-  '#message',
-  '#author-name'
-].join(',');
-const LINKEDIN_READABLE_DYNAMIC_TEXT_SELECTOR = [
-  '.artdeco-carousel',
-  '.org-jobs-recently-posted-jobs-module',
-  '.jobs-company__box',
-  '.jobs-search-results-list',
-  '.job-card-container',
-  '.jobs-unified-top-card',
-  '.base-card',
-  '.base-search-card',
-  '[class*="job-card"]',
-  '[class*="jobs-company"]',
-  '[class*="jobs-search"]',
-  '[class*="org-jobs"]',
-  '[class*="recently-posted-jobs"]',
-  '[data-test-id*="job"]'
-].join(',');
-const RICH_EDITOR_ROOT_SELECTOR = [
-  '[contenteditable="true"]',
-  '[contenteditable="plaintext-only"]',
-  '[role="textbox"]',
-  '[aria-multiline="true"]',
-  '[data-lexical-editor="true"]',
-  '[data-slate-editor="true"]',
-  '[data-editor]',
-  '.ProseMirror',
-  '.ql-editor',
-  '.DraftEditor-root',
-  '.public-DraftEditor-content',
-  '.notion-page-content',
-  '.notion-selectable',
-  '.monaco-editor',
-  '.CodeMirror',
-  '.cm-editor',
-  '.ace_editor',
-  '.kix-appview-editor',
-  '.kix-page',
-  '.kix-canvas-tile-content',
-  '.docs-texteventtarget-iframe',
-  '.docs-texteventtarget',
-  '.ck-editor__editable',
-  '.fr-element',
-  '.tox-edit-area',
-  '.note-editor',
-  '.rich-text-editor',
-  '.RichTextEditor',
-  '.lexical-editor',
-  '.slate-editor',
-  '.prosemirror-editor'
-].join(',');
+const selectorList = (selectors) => selectors.join(',');
+const TEXT_CONTEXT_SELECTORS = {
+  mediaShell: selectorList([
+    'video',
+    'audio',
+    'canvas',
+    '.html5-video-player',
+    '[class*="video-player"]',
+    '[id*="video-player"]',
+    '[id*="movie_player"]'
+  ]),
+  liveRegion: selectorList(['[aria-live="polite"]', '[aria-live="assertive"]']),
+  transientUi: selectorList([
+    '[class*="tooltip"]',
+    '[role="tooltip"]',
+    '[class*="miniplayer"]',
+    '[class*="mini-player"]',
+    '#chatframe'
+  ]),
+  staticText: selectorList([
+    'a[href]',
+    'button',
+    '[role="button"]',
+    '[role="link"]',
+    '[role="menuitem"]',
+    '[role="option"]',
+    '[role="tab"]',
+    'nav'
+  ]),
+  mainContent: selectorList([
+    'main',
+    '[role="main"]',
+    'article',
+    '[role="article"]',
+    '[role="feed"]',
+    '[role="list"]',
+    '[role="listitem"]',
+    '[class*="feed"]',
+    '[class*="profile"]',
+    '[class*="search-results"]',
+    '[class*="message"]',
+    '[class*="notification"]',
+    '[class*="comment"]',
+    '[class*="job-card"]',
+    '[class*="jobs-"]',
+    '[data-test-id*="job"]'
+  ]),
+  mediaText: selectorList([
+    '[class*="caption"]',
+    '[id*="caption"]',
+    '[class*="subtitle"]',
+    '[id*="subtitle"]',
+    '[class*="transcript"]',
+    '[id*="transcript"]',
+    '[role="log"]',
+    '[role="status"]',
+    '[class*="message"]',
+    '[class*="chat"]',
+    '[id*="chat"]',
+    '#message',
+    '#author-name'
+  ]),
+  editorPlaceholder: selectorList([
+    '.public-DraftEditorPlaceholder-root',
+    '.public-DraftEditorPlaceholder-inner'
+  ])
+};
+const RICH_EDITOR_CONTEXT = {
+  rootSelector: selectorList([
+    '[contenteditable="true"]',
+    '[contenteditable="plaintext-only"]',
+    '[role="textbox"]',
+    '[aria-multiline="true"]',
+    '[data-lexical-editor="true"]',
+    '[data-slate-editor="true"]',
+    '[data-editor]',
+    '.ProseMirror',
+    '.ql-editor',
+    '.DraftEditor-root',
+    '.public-DraftEditor-content',
+    '.notion-page-content',
+    '.notion-selectable',
+    '.monaco-editor',
+    '.CodeMirror',
+    '.cm-editor',
+    '.ace_editor',
+    '.kix-appview-editor',
+    '.kix-page',
+    '.kix-canvas-tile-content',
+    '.docs-texteventtarget-iframe',
+    '.docs-texteventtarget',
+    '.ck-editor__editable',
+    '.fr-element',
+    '.tox-edit-area',
+    '.note-editor',
+    '.rich-text-editor',
+    '.RichTextEditor',
+    '.lexical-editor',
+    '.slate-editor',
+    '.prosemirror-editor'
+  ]),
+  hints: [
+    'prosemirror',
+    'drafteditor',
+    'rich-text',
+    'richeditor',
+    'lexical',
+    'slate-editor',
+    'notion-',
+    'kix-',
+    'ql-editor',
+    'codemirror',
+    'monaco-editor',
+    'ace_editor',
+    'note-editor',
+    'editor-content',
+    'qa-common_editor_iframe'
+  ],
+  iframeHints: ['editor', 'evernote', 'docs', 'kix', 'compose']
+};
 let sidebarOpen = false;
 const ENGLISH_WORD_PATTERN = /\b[a-zA-Z]{2,}\b/g;
 let unknownHL;
@@ -165,6 +186,7 @@ let siteEnabled = false;
 let domContentLoadedHandler = null;
 let globalHoverListenersAdded = false;
 let storageChangedListener = null;
+let extensionContextInvalidated = false;
 let highlightRefreshTimer = null;
 let highlightRefreshInProgress = false;
 let highlightRefreshQueued = false;
@@ -244,14 +266,26 @@ function ensureDomContentLoadedListener() {
   if (domContentLoadedHandler) return;
   domContentLoadedHandler = () => {
     if (!siteEnabled) return;
-    chrome.storage.local.get(['highlightToggle', 'selectedFiles'], function (result) {
-      if (hasChromeStorageLastError('Error loading highlight settings')) return;
-      if (result.highlightToggle || (result.selectedFiles && result.selectedFiles.length > 0)) {
-        requestAnimationFrame(() => {
-          updateHighlights();
-        });
+    if (!isExtensionContextValid()) {
+      handleExtensionContextInvalidated();
+      return;
+    }
+    try {
+      chrome.storage.local.get(['highlightToggle', 'selectedFiles'], function (result) {
+        if (hasChromeStorageLastError('Error loading highlight settings')) return;
+        if (result.highlightToggle || (result.selectedFiles && result.selectedFiles.length > 0)) {
+          requestAnimationFrame(() => {
+            updateHighlights();
+          });
+        }
+      });
+    } catch (error) {
+      if (isExtensionContextInvalidatedError(error)) {
+        handleExtensionContextInvalidated();
+        return;
       }
-    });
+      throw error;
+    }
   };
   document.addEventListener('DOMContentLoaded', domContentLoadedHandler);
   if (document.readyState !== 'loading') {
@@ -567,26 +601,6 @@ function isYouTubeHost() {
   );
 }
 
-function isTwitterHost() {
-  const host = window.location.hostname;
-  return (
-    host === 'x.com' ||
-    host.endsWith('.x.com') ||
-    host === 'twitter.com' ||
-    host.endsWith('.twitter.com')
-  );
-}
-
-function isLinkedInHost() {
-  const host = window.location.hostname;
-  return host === 'linkedin.com' || host.endsWith('.linkedin.com');
-}
-
-function isLinkedInJobsPage() {
-  if (!isLinkedInHost()) return false;
-  return (window.location.pathname || '').includes('/jobs');
-}
-
 function isTopLevelFrame() {
   try {
     return window.top === window;
@@ -625,56 +639,36 @@ function closestSafely(element, selector) {
   }
 }
 
-function isYouTubeCaptionContext(node) {
-  if (!isYouTubeHost()) return false;
+function hasClosestSelector(node, selector) {
   const element = getContextElement(node);
   if (!element) return false;
-  return !!closestSafely(element, YOUTUBE_CAPTION_TEXT_CONTAINER_SELECTOR);
+  return !!closestSafely(element, selector);
 }
 
-function isYouTubeLiveChatTextContext(node) {
-  if (!isYouTubeHost()) return false;
-  const element = getContextElement(node);
-  if (!element) return false;
-  return !!closestSafely(element, YOUTUBE_LIVE_CHAT_TEXT_CONTAINER_SELECTOR);
+function isEditorPlaceholderContext(node) {
+  return hasClosestSelector(node, TEXT_CONTEXT_SELECTORS.editorPlaceholder);
 }
 
-function isYouTubeReadableDynamicTextContext(node) {
-  return isYouTubeCaptionContext(node) || isYouTubeLiveChatTextContext(node);
-}
-
-function isTwitterStaticInteractiveTextContext(node) {
-  if (!isTwitterHost()) return false;
-  const element = getContextElement(node);
-  if (!element) return false;
-  return !!closestSafely(element, STATIC_INTERACTIVE_TEXT_SELECTOR);
-}
-
-function isTwitterEditorPlaceholderContext(node) {
-  if (!isTwitterHost()) return false;
-  const element = getContextElement(node);
-  if (!element) return false;
-  return !!closestSafely(element, TWITTER_EDITOR_PLACEHOLDER_SELECTOR);
-}
-
-function isLinkedInReadableDynamicTextContext(node) {
-  if (!isLinkedInJobsPage()) return false;
-  const element = getContextElement(node);
-  if (!element) return false;
-  return !!closestSafely(element, LINKEDIN_READABLE_DYNAMIC_TEXT_SELECTOR);
+function isReadableTextContext(node) {
+  return (
+    hasClosestSelector(node, TEXT_CONTEXT_SELECTORS.staticText) ||
+    hasClosestSelector(node, TEXT_CONTEXT_SELECTORS.mainContent) ||
+    hasClosestSelector(node, TEXT_CONTEXT_SELECTORS.mediaText) ||
+    isEditorPlaceholderContext(node)
+  );
 }
 
 function isInHighChurnTextContext(node) {
   const element = getContextElement(node);
   if (!element) return false;
 
-  if (isTwitterEditorPlaceholderContext(element)) return false;
-  if (isTwitterStaticInteractiveTextContext(element)) return false;
-  if (isYouTubeReadableDynamicTextContext(element)) return false;
-  if (isLinkedInReadableDynamicTextContext(element)) return false;
-  if (closestSafely(element, HIGH_CHURN_TEXT_CONTAINER_SELECTOR)) return true;
-  if (isYouTubeHost() && closestSafely(element, YOUTUBE_HIGH_CHURN_TEXT_CONTAINER_SELECTOR)) {
-    return true;
+  const isReadableText = isReadableTextContext(element);
+  if (closestSafely(element, TEXT_CONTEXT_SELECTORS.mediaShell)) {
+    return !hasClosestSelector(element, TEXT_CONTEXT_SELECTORS.mediaText);
+  }
+  if (closestSafely(element, TEXT_CONTEXT_SELECTORS.liveRegion)) return !isReadableText;
+  if (closestSafely(element, TEXT_CONTEXT_SELECTORS.transientUi)) {
+    return !hasClosestSelector(element, TEXT_CONTEXT_SELECTORS.mediaText);
   }
 
   const root = typeof element.getRootNode === 'function' ? element.getRootNode() : null;
@@ -1021,7 +1015,7 @@ function isLikelyEditorContainer(element) {
 
   if (typeof element.matches === 'function') {
     try {
-      if (element.matches(RICH_EDITOR_ROOT_SELECTOR)) return true;
+      if (element.matches(RICH_EDITOR_CONTEXT.rootSelector)) return true;
     } catch (error) {
       // Ignore invalid selector edge cases from host pages.
     }
@@ -1035,28 +1029,10 @@ function isLikelyEditorContainer(element) {
   const className = toLowerString(getElementClassName(element));
 
   const joinedHints = `${elementId} ${elementName} ${className}`;
-  if (joinedHints.includes('prosemirror')) return true;
-  if (joinedHints.includes('drafteditor')) return true;
-  if (joinedHints.includes('rich-text')) return true;
-  if (joinedHints.includes('richeditor')) return true;
-  if (joinedHints.includes('lexical')) return true;
-  if (joinedHints.includes('slate-editor')) return true;
-  if (joinedHints.includes('notion-')) return true;
-  if (joinedHints.includes('kix-')) return true;
-  if (joinedHints.includes('ql-editor')) return true;
-  if (joinedHints.includes('codemirror')) return true;
-  if (joinedHints.includes('monaco-editor')) return true;
-  if (joinedHints.includes('ace_editor')) return true;
-  if (joinedHints.includes('note-editor')) return true;
-  if (joinedHints.includes('editor-content')) return true;
-  if (joinedHints.includes('qa-common_editor_iframe')) return true;
+  if (RICH_EDITOR_CONTEXT.hints.some((hint) => joinedHints.includes(hint))) return true;
 
   if (tagName === 'IFRAME') {
-    if (joinedHints.includes('editor')) return true;
-    if (joinedHints.includes('evernote')) return true;
-    if (joinedHints.includes('docs')) return true;
-    if (joinedHints.includes('kix')) return true;
-    if (joinedHints.includes('compose')) return true;
+    if (RICH_EDITOR_CONTEXT.iframeHints.some((hint) => joinedHints.includes(hint))) return true;
   }
 
   if (className) {
@@ -1088,7 +1064,7 @@ function isInRichEditorContext(node) {
 }
 
 function shouldSkipRichEditorContext(node) {
-  return isInRichEditorContext(node) && !isTwitterEditorPlaceholderContext(node);
+  return isInRichEditorContext(node) && !isEditorPlaceholderContext(node);
 }
 
 function shouldProcessNode(node) {
@@ -1378,6 +1354,10 @@ function clearAllHighlights() {
 
 function updateHighlights() {
   try {
+    if (extensionContextInvalidated || !isExtensionContextValid()) {
+      handleExtensionContextInvalidated();
+      return;
+    }
     if (!siteEnabled) return;
     if (highlightRefreshInProgress) {
       highlightRefreshQueued = true;
@@ -1397,7 +1377,7 @@ function updateHighlights() {
     chrome.storage.local.get(
       ['highlightToggle', 'selectedFiles', 'uploadedFiles'],
       function (result) {
-        if (chrome.runtime.lastError || !siteEnabled) {
+        if (hasChromeStorageLastError('Error loading highlight settings') || !siteEnabled) {
           finishRefresh();
           return;
         }
@@ -1421,11 +1401,19 @@ function updateHighlights() {
     );
   } catch (e) {
     highlightRefreshInProgress = false;
+    if (isExtensionContextInvalidatedError(e)) {
+      handleExtensionContextInvalidated();
+      return;
+    }
     console.error('Error in updateHighlights:', e);
   }
 }
 
 function hasChromeStorageLastError(action) {
+  if (extensionContextInvalidated || !isExtensionContextValid()) {
+    handleExtensionContextInvalidated();
+    return true;
+  }
   if (!chrome.runtime.lastError) return false;
   console.error(`${action}: ${chrome.runtime.lastError.message}`);
   return true;
@@ -2235,13 +2223,32 @@ function getPopupRoot(popup) {
 function getPopupStylesText() {
   if (popupStylesText) return Promise.resolve(popupStylesText);
   if (!popupStylesPromise) {
-    popupStylesPromise = fetch(chrome.runtime.getURL('styles.css'))
+    let stylesUrl = '';
+    try {
+      if (!isExtensionContextValid()) {
+        handleExtensionContextInvalidated();
+        return Promise.resolve('');
+      }
+      stylesUrl = chrome.runtime.getURL('styles.css');
+    } catch (error) {
+      if (isExtensionContextInvalidatedError(error)) {
+        handleExtensionContextInvalidated();
+        return Promise.resolve('');
+      }
+      throw error;
+    }
+
+    popupStylesPromise = fetch(stylesUrl)
       .then((response) => response.text())
       .then((text) => {
         popupStylesText = text;
         return text;
       })
       .catch((error) => {
+        if (isExtensionContextInvalidatedError(error)) {
+          handleExtensionContextInvalidated();
+          return '';
+        }
         console.warn('Failed to load popup styles:', error);
         popupStylesText = '';
         return '';
@@ -2494,21 +2501,8 @@ function addToKnownWords(word) {
     hidePopup();
     removeHighlightForWord(lowercaseWord);
 
-    // 立即更新侧边栏，避免等待存储变化监听事件
-    const wordList = document.getElementById('wordList');
-    if (wordList) {
-      appendWordToList(lowercaseWord, wordList);
-    } else {
-      console.warn('Word list element not found');
-    }
-
-    // Update the word count in the hlw-content-header
-    const knownWordHeader = document.querySelector('.hlw-sidebar-content.hlw-learned h2');
-    if (knownWordHeader) {
-      knownWordHeader.textContent = `Known Words (${knownWords.size})`;
-    } else {
-      console.warn('Known word hlw-content-header element not found');
-    }
+    // Refresh the sidebar immediately when it exists; iframe contexts do not own sidebar UI.
+    renderWordList();
 
     // 延迟保存，避免立即触发存储变化监听器
     setTimeout(() => {
@@ -2843,6 +2837,30 @@ function cleanup() {
   clearHighlightRefreshQueue();
 }
 
+function applyCurrentSitePermission(disabledSites = []) {
+  const currentHost = window.location.hostname;
+  const isEnabled = !disabledSites.includes(currentHost);
+  const sitePermission = isTopLevelFrame() ? document.getElementById('sitePermission') : null;
+
+  if (sitePermission) {
+    sitePermission.checked = isEnabled;
+  }
+
+  if (isEnabled) {
+    enableSiteFeatures();
+  } else {
+    disableSiteFeatures();
+  }
+}
+
+function hasLocalHighlightSettingsChange(changes) {
+  return (
+    Object.prototype.hasOwnProperty.call(changes, 'highlightToggle') ||
+    Object.prototype.hasOwnProperty.call(changes, 'selectedFiles') ||
+    Object.prototype.hasOwnProperty.call(changes, 'uploadedFiles')
+  );
+}
+
 function setupStorageChangedListener() {
   if (storageChangedListener) return;
 
@@ -2855,6 +2873,18 @@ function setupStorageChangedListener() {
   }, 100);
 
   storageChangedListener = (changes, namespace) => {
+    if (namespace === 'local') {
+      if (Object.prototype.hasOwnProperty.call(changes, 'disabledSites')) {
+        applyCurrentSitePermission(changes.disabledSites.newValue || []);
+        return;
+      }
+
+      if (hasLocalHighlightSettingsChange(changes) && siteEnabled) {
+        updateHighlights();
+      }
+      return;
+    }
+
     if (namespace !== 'sync') return;
 
     const hasCommittedKnownWordsUpdate =
@@ -3771,11 +3801,41 @@ function toggleFileSelection(event) {
 }
 
 function isExtensionContextValid() {
+  if (extensionContextInvalidated) return false;
   try {
     chrome.runtime.getURL('');
     return true;
   } catch (e) {
     return false;
+  }
+}
+
+function isExtensionContextInvalidatedError(error) {
+  return !!(
+    error &&
+    typeof error.message === 'string' &&
+    error.message.toLowerCase().includes('extension context invalidated')
+  );
+}
+
+function handleExtensionContextInvalidated() {
+  if (extensionContextInvalidated) return;
+  extensionContextInvalidated = true;
+  siteEnabled = false;
+  cleanup();
+  clearAllHighlights();
+  removeTextSelectionListeners();
+  removeGlobalHoverListeners();
+  removeDomContentLoadedListener();
+  if (activePopup) {
+    hidePopup();
+  }
+  if (selectionIcon) {
+    hideSelectionIcon();
+  }
+  if (currentTranslationController) {
+    currentTranslationController.abort();
+    currentTranslationController = null;
   }
 }
 
@@ -3906,7 +3966,20 @@ function isValidEnglishText(text) {
 
 function createSelectionIconImage() {
   const iconImg = document.createElement('img');
-  const imageUrl = chrome.runtime.getURL('img/letter-e-16.png');
+  let imageUrl = '';
+  try {
+    if (!isExtensionContextValid()) {
+      handleExtensionContextInvalidated();
+    } else {
+      imageUrl = chrome.runtime.getURL('img/letter-e-16.png');
+    }
+  } catch (error) {
+    if (isExtensionContextInvalidatedError(error)) {
+      handleExtensionContextInvalidated();
+    } else {
+      throw error;
+    }
+  }
   iconImg.src = imageUrl;
   iconImg.style.cssText = `
     width: ${SELECTION_ICON_IMAGE_SIZE_PX}px;

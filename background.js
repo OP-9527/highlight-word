@@ -38,7 +38,13 @@ const TRANSLATION_SOURCES = {
       `?client=gtx&sl=en&tl=zh&dt=t&q=${encodeURIComponent(word)}`,
     processResponse: async (response) => {
       const data = await response.json();
-      const translation = data?.[0]?.[0]?.[0];
+      const translation = Array.isArray(data?.[0])
+        ? data[0]
+            .map((segment) => segment?.[0])
+            .filter((segmentText) => typeof segmentText === 'string')
+            .join('')
+            .trim()
+        : '';
       return translation ? { translation, source: 'google' } : null;
     }
   },

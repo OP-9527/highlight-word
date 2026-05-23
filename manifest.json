@@ -12,30 +12,14 @@
     {
       "css": ["styles.css"],
       "js": ["content.js"],
-      "matches": ["\u003Call_urls>"],
-      "exclude_matches": [
-        "*://youtube.com/live_chat*",
-        "*://youtube.com/live_chat_replay*",
-        "*://*.youtube.com/live_chat*",
-        "*://*.youtube.com/live_chat_replay*",
-        "*://youtube-nocookie.com/live_chat*",
-        "*://youtube-nocookie.com/live_chat_replay*",
-        "*://*.youtube-nocookie.com/live_chat*",
-        "*://*.youtube-nocookie.com/live_chat_replay*"
-      ]
+      "matches": ["\u003Call_urls>"]
     },
     {
       "css": ["styles.css"],
       "js": ["content.js"],
       "matches": [
-        "*://youtube.com/live_chat*",
-        "*://youtube.com/live_chat_replay*",
         "*://*.youtube.com/live_chat*",
-        "*://*.youtube.com/live_chat_replay*",
-        "*://youtube-nocookie.com/live_chat*",
-        "*://youtube-nocookie.com/live_chat_replay*",
-        "*://*.youtube-nocookie.com/live_chat*",
-        "*://*.youtube-nocookie.com/live_chat_replay*"
+        "*://*.youtube.com/live_chat_replay*"
       ],
       "all_frames": true
     }
@@ -54,7 +38,7 @@
   "name": "English Word Highlighter",
   "permissions": ["storage", "activeTab"],
   "update_url": "https://clients2.google.com/service/update2/crx",
-  "version": "1.23",
+  "version": "1.24",
   "web_accessible_resources": [
     {
       "matches": ["\u003Call_urls>"],
