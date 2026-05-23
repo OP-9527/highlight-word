@@ -11,12 +11,36 @@
   "content_scripts": [
     {
       "css": ["styles.css"],
-      "js": ["content.js"],
+      "js": [
+        "content/00_config_state.js",
+        "content/10_dom_context.js",
+        "content/20_highlighter.js",
+        "content/30_popup_translation.js",
+        "content/40_known_words_storage.js",
+        "content/50_hover_lifecycle.js",
+        "content/60_sidebar.js",
+        "content/70_selection.js",
+        "content/90_bootstrap.js"
+      ],
+      "exclude_matches": [
+        "*://*.youtube.com/live_chat*",
+        "*://*.youtube.com/live_chat_replay*"
+      ],
       "matches": ["\u003Call_urls>"]
     },
     {
       "css": ["styles.css"],
-      "js": ["content.js"],
+      "js": [
+        "content/00_config_state.js",
+        "content/10_dom_context.js",
+        "content/20_highlighter.js",
+        "content/30_popup_translation.js",
+        "content/40_known_words_storage.js",
+        "content/50_hover_lifecycle.js",
+        "content/60_sidebar.js",
+        "content/70_selection.js",
+        "content/90_bootstrap.js"
+      ],
       "matches": [
         "*://*.youtube.com/live_chat*",
         "*://*.youtube.com/live_chat_replay*"
