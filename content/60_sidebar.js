@@ -695,12 +695,11 @@ function isExtensionContextInvalidatedError(error) {
   );
 }
 
+// Highlighting itself needs no chrome APIs, so orphaned content scripts keep
+// it alive (observer included) and only shut down translation/storage features.
 function handleExtensionContextInvalidated() {
   if (extensionContextInvalidated) return;
   extensionContextInvalidated = true;
-  siteEnabled = false;
-  cleanup();
-  clearAllHighlights();
   removeTextSelectionListeners();
   removeGlobalHoverListeners();
   removeDomContentLoadedListener();

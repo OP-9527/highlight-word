@@ -703,19 +703,43 @@ function clearAllHighlights() {
   }
 }
 
+// Orphaned content scripts cannot read storage; the last known mode is enough
+// to keep highlighting working until the page reloads.
+function refreshHighlightsFromCachedMode() {
+  if (!siteEnabled || !highlightModeState.ready) return;
+  try {
+    clearAllHighlights();
+    if (hasActiveHighlightMode()) {
+      const wordsSet = highlightModeState.mode === 'selected' ? highlightModeState.wordsSet : null;
+      processRootAndOpenShadowRoots(document.body, wordsSet, {
+        passCache: createHighlightPassCache(),
+        observeShadowRoots: true
+      });
+    }
+  } catch (error) {
+    console.error('Error refreshing highlights from cached mode:', error);
+  }
+}
+
 function updateHighlights() {
   try {
     if (extensionContextInvalidated || !isExtensionContextValid()) {
       handleExtensionContextInvalidated();
+      refreshHighlightsFromCachedMode();
       return;
     }
     if (!siteEnabled) return;
     if (highlightRefreshInProgress) {
-      highlightRefreshQueued = true;
-      return;
+      // Recover if the pending storage callback never returned (e.g. the
+      // extension reloaded mid-flight); otherwise queue as usual.
+      if (Date.now() - highlightRefreshStartedAt < HIGHLIGHT_REFRESH_STUCK_MS) {
+        highlightRefreshQueued = true;
+        return;
+      }
     }
 
     highlightRefreshInProgress = true;
+    highlightRefreshStartedAt = Date.now();
 
     const finishRefresh = () => {
       highlightRefreshInProgress = false;
@@ -730,6 +754,7 @@ function updateHighlights() {
       function (result) {
         if (hasChromeStorageLastError('Error loading highlight settings') || !siteEnabled) {
           finishRefresh();
+          if (extensionContextInvalidated) refreshHighlightsFromCachedMode();
           return;
         }
 
@@ -757,6 +782,7 @@ function updateHighlights() {
     highlightRefreshInProgress = false;
     if (isExtensionContextInvalidatedError(e)) {
       handleExtensionContextInvalidated();
+      refreshHighlightsFromCachedMode();
       return;
     }
     console.error('Error in updateHighlights:', e);

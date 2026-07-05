@@ -13,6 +13,7 @@ const MAX_TEXT_NODES_PER_ELEMENT_CONTEXT = 80;
 const MAX_HIGHLIGHT_RANGES = 12000;
 const MAX_TEXT_NODES_PER_HIGHLIGHT_PASS = 4500;
 const FULL_HIGHLIGHT_REFRESH_DEBOUNCE_MS = 250;
+const HIGHLIGHT_REFRESH_STUCK_MS = 10000;
 const MAX_INCREMENTAL_MUTATIONS = 1200;
 const STORAGE_KEY_PREFIX = 'knownWords_';
 // chrome.storage.sync has an 8KB per-item limit, so known words stay chunked.
@@ -190,6 +191,7 @@ let storageChangedListener = null;
 let extensionContextInvalidated = false;
 let highlightRefreshTimer = null;
 let highlightRefreshInProgress = false;
+let highlightRefreshStartedAt = 0;
 let highlightRefreshQueued = false;
 let highlightRangeCount = 0;
 const VISIBILITY_ATTRIBUTE_NAMES = new Set([
