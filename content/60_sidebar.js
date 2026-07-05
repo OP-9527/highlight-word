@@ -441,9 +441,11 @@ function appendWordToList(word, wordList) {
   wordList.appendChild(li);
 }
 
+// Rebuilding the list per keystroke is slow with large word sets, so debounce.
+const debouncedRenderFilteredWords = debounce((filter) => renderFilteredWords(filter), WORD_SEARCH_DEBOUNCE_MS);
+
 function filterWords(event) {
-  const filter = event.target.value;
-  renderFilteredWords(filter);
+  debouncedRenderFilteredWords(event.target.value);
 }
 
 function deleteWord(word) {

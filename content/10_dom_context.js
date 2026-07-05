@@ -132,8 +132,16 @@ function processRootAndOpenShadowRoots(root, wordsSet = null, options = {}) {
   let highlightedRanges = 0;
   if (isInHighChurnTextContext(root)) return highlightedRanges;
 
+  // One traversal both attaches shadow observers and highlights text.
   collectRootAndOpenShadowRoots(root).forEach((processRoot) => {
     if (isInHighChurnTextContext(processRoot)) return;
+    if (
+      options.observeShadowRoots &&
+      processRoot.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+      processRoot.host
+    ) {
+      ensureShadowRootObserver(processRoot);
+    }
     highlightedRanges += processAllTextNodes(processRoot, wordsSet, options);
   });
   return highlightedRanges;
@@ -166,40 +174,12 @@ function ensureShadowRootObserver(shadowRoot) {
   shadowRootObservers.set(shadowRoot, shadowObserver);
 }
 
-function disconnectShadowRootObserver(shadowRoot) {
-  const shadowObserver = shadowRootObservers.get(shadowRoot);
-  if (!shadowObserver) return;
-  shadowObserver.disconnect();
-  shadowRootObservers.delete(shadowRoot);
-}
-
-function disconnectShadowRootObserversInSubtree(root) {
-  if (!root || shadowRootObservers.size === 0) return;
-  collectRootAndOpenShadowRoots(root).forEach((processRoot) => {
-    if (processRoot && processRoot.nodeType === Node.DOCUMENT_FRAGMENT_NODE && processRoot.host) {
-      disconnectShadowRootObserver(processRoot);
-    }
-  });
-}
-
 function pruneDisconnectedShadowRootObservers() {
   if (shadowRootObservers.size === 0) return;
   shadowRootObservers.forEach((shadowObserver, shadowRoot) => {
     if (!shadowRoot.host || !shadowRoot.host.isConnected) {
       shadowObserver.disconnect();
       shadowRootObservers.delete(shadowRoot);
-    }
-  });
-}
-
-function observeOpenShadowRoots(root) {
-  if (isInHighChurnTextContext(root)) return;
-  pruneDisconnectedShadowRootObservers();
-
-  collectRootAndOpenShadowRoots(root).forEach((processRoot) => {
-    if (processRoot && processRoot.nodeType === Node.DOCUMENT_FRAGMENT_NODE && processRoot.host) {
-      if (isInHighChurnTextContext(processRoot.host)) return;
-      ensureShadowRootObserver(processRoot);
     }
   });
 }

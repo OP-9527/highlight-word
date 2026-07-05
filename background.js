@@ -63,10 +63,22 @@ const TRANSLATION_SOURCES = {
       const bingdictHtml = await response.text();
       const hasNoResult =
         bingdictHtml.includes('No results found') || bingdictHtml.includes('没有找到');
-      return { html: hasNoResult ? null : bingdictHtml, source: 'bingdict' };
+      return { html: hasNoResult ? null : trimBingDictHtml(bingdictHtml), source: 'bingdict' };
     }
   }
 };
+
+// The content script only reads the .qdef block (pronunciation, definitions,
+// word forms), so avoid serializing the whole page through sendMessage.
+const BING_HTML_SLICE_MAX_CHARS = 60000;
+
+function trimBingDictHtml(html) {
+  const markerIndex = html.indexOf('class="qdef"');
+  if (markerIndex === -1) return html;
+  const start = html.lastIndexOf('<', markerIndex);
+  const sliceStart = start === -1 ? markerIndex : start;
+  return html.slice(sliceStart, sliceStart + BING_HTML_SLICE_MAX_CHARS);
+}
 
 async function fetchTranslation(source, word) {
   const config = TRANSLATION_SOURCES[source];
@@ -92,15 +104,50 @@ async function fetchTranslation(source, word) {
   }
 }
 
+// Cross-tab cache so repeated lookups skip the network and the large payloads.
+const TRANSLATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const TRANSLATION_CACHE_MAX_ENTRIES = 200;
+const translationResultsCache = new Map();
+
+function getCachedTranslationResults(word) {
+  const entry = translationResultsCache.get(word);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp >= TRANSLATION_CACHE_TTL_MS) {
+    translationResultsCache.delete(word);
+    return null;
+  }
+  // Re-insert to keep Map iteration order as LRU order.
+  translationResultsCache.delete(word);
+  translationResultsCache.set(word, entry);
+  return entry.results;
+}
+
+function cacheTranslationResults(word, results) {
+  translationResultsCache.set(word, { results, timestamp: Date.now() });
+  while (translationResultsCache.size > TRANSLATION_CACHE_MAX_ENTRIES) {
+    translationResultsCache.delete(translationResultsCache.keys().next().value);
+  }
+}
+
 async function getAllTranslations(word) {
+  const cacheKey = word.toLowerCase();
+  const cachedResults = getCachedTranslationResults(cacheKey);
+  if (cachedResults) return cachedResults;
+
   const translations = await Promise.all(
     Object.keys(TRANSLATION_SOURCES).map((source) => fetchTranslation(source, word))
   );
 
-  return Object.keys(TRANSLATION_SOURCES).reduce((results, source, index) => {
-    results[`${source}Result`] = translations[index];
-    return results;
+  const results = Object.keys(TRANSLATION_SOURCES).reduce((acc, source, index) => {
+    acc[`${source}Result`] = translations[index];
+    return acc;
   }, {});
+
+  // Only cache useful responses; failures should retry on the next lookup.
+  if (translations.some((translation) => translation !== null)) {
+    cacheTranslationResults(cacheKey, results);
+  }
+  return results;
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

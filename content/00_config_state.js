@@ -39,6 +39,7 @@ const SELECTION_ICON_OFFSET_Y_PX = -12;
 const SELECTION_ICON_Z_INDEX = '100000';
 const SELECTION_ICON_FALLBACK_FONT_SIZE_PX = 12;
 const SELECTION_ICON_BACKGROUND = 'rgb(33, 150, 243)';
+const WORD_SEARCH_DEBOUNCE_MS = 150;
 
 // Runtime state
 let highlights = new Map();
@@ -212,6 +213,7 @@ const OBSERVER_OPTIONS = {
 let textNodeRangeIndex = new WeakMap();
 let pendingMutationRecords = [];
 let mutationFramePending = false;
+let selectedWordsSetCache = { key: null, wordsSet: null };
 let highlightModeState = {
   ready: false,
   mode: 'none', // 'all' | 'selected' | 'none'
