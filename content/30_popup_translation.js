@@ -515,6 +515,24 @@ function generateDefinitionFromJson(json) {
 
 function isPointInRange(range, x, y, pointRange = null, pointElement = null) {
   if (!range) return false;
+  // Cheap reject on raw rects before any style or hit-test work; the inset
+  // test below only ever accepts points inside a raw rect.
+  const rects = range.getClientRects();
+  const boundingRect = rects && rects.length ? null : range.getBoundingClientRect();
+  const rectContainsPoint = (rect) =>
+    x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  let insideAnyRect = false;
+  if (rects && rects.length) {
+    for (const rect of rects) {
+      if (rectContainsPoint(rect)) {
+        insideAnyRect = true;
+        break;
+      }
+    }
+  } else if (boundingRect) {
+    insideAnyRect = rectContainsPoint(boundingRect);
+  }
+  if (!insideAnyRect) return false;
   const parentElement =
     range.startContainer && range.startContainer.nodeType === Node.TEXT_NODE
       ? range.startContainer.parentElement
@@ -580,7 +598,6 @@ function isPointInRange(range, x, y, pointRange = null, pointElement = null) {
     }
     return x >= left && x <= right && y >= top && y <= bottom;
   };
-  const rects = range.getClientRects();
   if (rects && rects.length) {
     for (const rect of rects) {
       if (isInsideRect(rect)) {
@@ -589,8 +606,7 @@ function isPointInRange(range, x, y, pointRange = null, pointElement = null) {
     }
     return false;
   }
-  const rect = range.getBoundingClientRect();
-  return isInsideRect(rect);
+  return isInsideRect(boundingRect);
 }
 
 function resolveTextNodeFromRange(range) {
@@ -630,9 +646,8 @@ function findWordAtRange(range, x, y, pointElement = null) {
     startContainer && startContainer === range.startContainer && Number.isFinite(startOffset);
 
   // Prioritize exact caret text-node match.
-  if (startContainer && entries.length > 0) {
-    for (const entry of entries) {
-      const highlightRange = entry.range;
+  if (startContainer && entries && entries.size > 0) {
+    for (const [highlightRange, word] of entries) {
       if (!highlightRange || highlightRange.startContainer !== startContainer) continue;
       if (shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
       if (hasCharacterOffset) {
@@ -640,21 +655,20 @@ function findWordAtRange(range, x, y, pointElement = null) {
           continue;
       }
       if (!hasPoint || isPointInRange(highlightRange, x, y, range, pointElement)) {
-        return { word: entry.word, rect: highlightRange.getBoundingClientRect() };
+        return { word, rect: highlightRange.getBoundingClientRect() };
       }
     }
   }
 
   // Non-point fallback: keep support for callers that pass only a range.
-  if (!hasPoint && entries.length > 0) {
-    for (const entry of entries) {
-      const highlightRange = entry.range;
+  if (!hasPoint && entries && entries.size > 0) {
+    for (const [highlightRange, word] of entries) {
       if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
       if (
         range.compareBoundaryPoints(Range.START_TO_START, highlightRange) >= 0 &&
         range.compareBoundaryPoints(Range.END_TO_END, highlightRange) <= 0
       ) {
-        return { word: entry.word, rect: highlightRange.getBoundingClientRect() };
+        return { word, rect: highlightRange.getBoundingClientRect() };
       }
     }
   }
@@ -737,13 +751,12 @@ function findWordFromElementContext(pointElement, x, y) {
     const hasFoundMatch = forEachTextNodeInElementContext(current, visitedTextNodes, (textNode) => {
       if (match) return;
       const entries = getTextNodeHighlightEntries(textNode);
-      if (!entries || entries.length === 0) return;
+      if (!entries || entries.size === 0) return;
 
-      for (const entry of entries) {
-        const highlightRange = entry.range;
+      for (const [highlightRange, word] of entries) {
         if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
         if (isPointInRange(highlightRange, x, y, null, pointElement)) {
-          match = { word: entry.word, rect: highlightRange.getBoundingClientRect() };
+          match = { word, rect: highlightRange.getBoundingClientRect() };
           return true;
         }
       }
@@ -785,11 +798,12 @@ function findWordAtPoint(x, y, existingPointContext = null, existingPointElement
   }
 
   const entries = getTextNodeHighlightEntries(textNode);
-  for (const entry of entries) {
-    const highlightRange = entry.range;
-    if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
-    if (isPointInRange(highlightRange, x, y, pointRange, pointContext.element)) {
-      return { word: entry.word, rect: highlightRange.getBoundingClientRect() };
+  if (entries) {
+    for (const [highlightRange, word] of entries) {
+      if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
+      if (isPointInRange(highlightRange, x, y, pointRange, pointContext.element)) {
+        return { word, rect: highlightRange.getBoundingClientRect() };
+      }
     }
   }
   return findWordFromElementCandidates(pointElements, x, y);

@@ -1,7 +1,21 @@
-function buildSelectedWordsSet(selectedFiles, uploadedFiles) {
-  const wordsSet = new Set();
-  if (!selectedFiles || !uploadedFiles || selectedFiles.length === 0) return wordsSet;
+function getSelectedWordsCacheKey(selectedFiles, uploadedFiles) {
+  const fileSignature = uploadedFiles
+    .map((fileInfo) =>
+      fileInfo
+        ? `${fileInfo.name}|${fileInfo.lastModified}|${fileInfo.content ? fileInfo.content.length : 0}`
+        : ''
+    )
+    .join(';');
+  return `${selectedFiles.join(',')}#${fileSignature}`;
+}
 
+function buildSelectedWordsSet(selectedFiles, uploadedFiles) {
+  if (!selectedFiles || !uploadedFiles || selectedFiles.length === 0) return new Set();
+
+  const cacheKey = getSelectedWordsCacheKey(selectedFiles, uploadedFiles);
+  if (selectedWordsSetCache.key === cacheKey) return selectedWordsSetCache.wordsSet;
+
+  const wordsSet = new Set();
   selectedFiles.forEach((fileIndex) => {
     const fileInfo = uploadedFiles[fileIndex];
     if (!fileInfo || !fileInfo.content) return;
@@ -12,6 +26,7 @@ function buildSelectedWordsSet(selectedFiles, uploadedFiles) {
         if (word) wordsSet.add(word);
       });
   });
+  selectedWordsSetCache = { key: cacheKey, wordsSet };
   return wordsSet;
 }
 
@@ -133,7 +148,8 @@ function queueMutationRecords(mutations) {
 function createMutationProcessingContext() {
   return {
     textNodesToRefresh: new Set(),
-    rootsToProcess: new Set()
+    rootsToProcess: new Set(),
+    rootsToClear: new Set()
   };
 }
 
@@ -151,14 +167,18 @@ function collectAttributeMutation(mutation, context) {
   const target = mutation.target;
   if (!target || target.nodeType !== Node.ELEMENT_NODE || shouldIgnoreMutationNode(target)) return;
 
-  observeOpenShadowRoots(target);
-  clearHighlightsInSubtreeAndOpenShadowRoots(target);
+  // A page-wide subtree is too expensive to clear and rescan synchronously.
+  if (target === document.body || target === document.documentElement) {
+    scheduleHighlightRefresh();
+    return;
+  }
+
   context.rootsToProcess.add(target);
+  context.rootsToClear.add(target);
 }
 
 function collectChildListMutation(mutation, context) {
   mutation.removedNodes.forEach((node) => {
-    disconnectShadowRootObserversInSubtree(node);
     if (shouldIgnoreMutationNode(node)) return;
     clearHighlightsInSubtreeAndOpenShadowRoots(node);
   });
@@ -170,7 +190,6 @@ function collectChildListMutation(mutation, context) {
       return;
     }
     if (node.nodeType === Node.ELEMENT_NODE) {
-      observeOpenShadowRoots(node);
       context.rootsToProcess.add(node);
     }
   });
@@ -193,31 +212,47 @@ function collectIncrementalHighlightWork(mutations) {
   return context;
 }
 
-function refreshMutatedTextNodes(textNodes, wordsSet, visibilityCache) {
+function refreshMutatedTextNodes(textNodes, wordsSet, passCache) {
   textNodes.forEach((textNode) => {
     clearHighlightsForTextNode(textNode);
     if (!textNode || textNode.nodeType !== Node.TEXT_NODE || !textNode.isConnected) return;
-    const parentElement = textNode.parentElement;
-    if (!parentElement || !shouldProcessNode(parentElement) || isInWordPopup(parentElement)) return;
-    highlightWordsInTextNode(textNode, wordsSet, visibilityCache);
+    highlightWordsInTextNode(textNode, wordsSet, passCache);
   });
 }
 
 function getConnectedTopLevelRoots(rootsToProcess) {
-  const rootList = Array.from(rootsToProcess).filter((root) => {
-    return root && root.nodeType === Node.ELEMENT_NODE && root.isConnected;
+  const rootSet = new Set();
+  rootsToProcess.forEach((root) => {
+    if (root && root.nodeType === Node.ELEMENT_NODE && root.isConnected) rootSet.add(root);
   });
 
-  return rootList.filter((root) => {
-    return !rootList.some((other) => other !== root && other.contains && other.contains(root));
+  const topLevelRoots = [];
+  rootSet.forEach((root) => {
+    let ancestor = root.parentElement;
+    while (ancestor && !rootSet.has(ancestor)) {
+      ancestor = ancestor.parentElement;
+    }
+    if (!ancestor) topLevelRoots.push(root);
   });
+  return topLevelRoots;
 }
 
-function refreshMutatedRoots(rootsToProcess, wordsSet, visibilityCache) {
-  getConnectedTopLevelRoots(rootsToProcess).forEach((root) => {
+function rootNeedsHighlightClear(root, rootsToClear) {
+  if (!rootsToClear || rootsToClear.size === 0) return false;
+  if (rootsToClear.has(root)) return true;
+  for (const clearTarget of rootsToClear) {
+    if (root.contains && root.contains(clearTarget)) return true;
+  }
+  return false;
+}
+
+function refreshMutatedRoots(work, wordsSet, passCache) {
+  getConnectedTopLevelRoots(work.rootsToProcess).forEach((root) => {
     if (shouldIgnoreMutationNode(root)) return;
-    observeOpenShadowRoots(root);
-    processRootAndOpenShadowRoots(root, wordsSet, { visibilityCache });
+    if (rootNeedsHighlightClear(root, work.rootsToClear)) {
+      clearHighlightsInSubtreeAndOpenShadowRoots(root);
+    }
+    processRootAndOpenShadowRoots(root, wordsSet, { passCache, observeShadowRoots: true });
   });
 }
 
@@ -235,11 +270,12 @@ function processMutationsIncrementally(mutations) {
   if (!hasActiveHighlightMode()) return;
 
   const wordsSet = highlightModeState.mode === 'selected' ? highlightModeState.wordsSet : null;
-  const visibilityCache = new WeakMap();
+  const passCache = createHighlightPassCache();
   const work = collectIncrementalHighlightWork(mutations);
 
-  refreshMutatedTextNodes(work.textNodesToRefresh, wordsSet, visibilityCache);
-  refreshMutatedRoots(work.rootsToProcess, wordsSet, visibilityCache);
+  pruneDisconnectedShadowRootObservers();
+  refreshMutatedTextNodes(work.textNodesToRefresh, wordsSet, passCache);
+  refreshMutatedRoots(work, wordsSet, passCache);
 }
 
 function setupObserver() {
@@ -249,7 +285,6 @@ function setupObserver() {
     queueMutationRecords(mutations);
   });
   observer.observe(document.body, OBSERVER_OPTIONS);
-  observeOpenShadowRoots(document.body);
 }
 
 function disableSiteFeatures() {
@@ -369,6 +404,23 @@ function shouldProcessNode(node) {
   );
 }
 
+// Ancestor-chain checks are expensive, so one pass shares the verdicts per element.
+function createHighlightPassCache() {
+  return {
+    processable: new WeakMap(),
+    visibility: new WeakMap()
+  };
+}
+
+function isElementProcessableForHighlight(element, passCache = null) {
+  if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+  const cache = passCache ? passCache.processable : null;
+  if (cache && cache.has(element)) return cache.get(element);
+  const processable = shouldProcessNode(element) && !isInWordPopup(element);
+  if (cache) cache.set(element, processable);
+  return processable;
+}
+
 function isPartOfSidebar(node) {
   let currentNode = node;
   while (currentNode) {
@@ -392,16 +444,11 @@ function processAllTextNodes(root, wordsSet = null, options = {}) {
   if (isInHighChurnTextContext(root)) return 0;
   let highlightedRanges = 0;
   let scannedTextNodes = 0;
-  const visibilityCache = options.visibilityCache || null;
+  const passCache = options.passCache || null;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {
-      const parent = node.parentNode;
-      if (
-        parent &&
-        shouldProcessNode(parent) &&
-        node.textContent.trim() &&
-        !isInWordPopup(parent)
-      ) {
+      if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
+      if (isElementProcessableForHighlight(node.parentNode, passCache)) {
         return NodeFilter.FILTER_ACCEPT;
       }
       return NodeFilter.FILTER_REJECT;
@@ -412,7 +459,7 @@ function processAllTextNodes(root, wordsSet = null, options = {}) {
     scannedTextNodes += 1;
     if (scannedTextNodes > MAX_TEXT_NODES_PER_HIGHLIGHT_PASS) break;
     if (highlightRangeCount >= MAX_HIGHLIGHT_RANGES) break;
-    highlightedRanges += highlightWordsInTextNode(node, wordsSet, visibilityCache);
+    highlightedRanges += highlightWordsInTextNode(node, wordsSet, passCache);
   }
   return highlightedRanges;
 }
@@ -434,36 +481,39 @@ function isInWordPopup(node) {
   return false;
 }
 
-function isElementVisibleForHighlight(element) {
+function isElementVisibleForHighlight(element, passCache = null) {
   if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
   if (element.closest('[hidden]')) return false;
+
+  // checkVisibility already covers the whole ancestor chain, so one call suffices.
+  if (typeof element.checkVisibility === 'function') {
+    let visible = null;
+    try {
+      visible = element.checkVisibility({
+        checkOpacity: false,
+        checkVisibilityCSS: true
+      });
+    } catch (error) {
+      // Fall back to computed style checks.
+    }
+    if (visible === true) return true;
+    if (visible === false) {
+      // display:contents elements report as hidden even when their text renders.
+      const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
+      if (!style || style.display !== 'contents') return false;
+      if (element === document.body || element === document.documentElement) return true;
+      const parent = element.parentElement;
+      return parent ? isElementVisibleForHighlightCached(parent, passCache) : true;
+    }
+  }
 
   let current = element;
   while (current && current.nodeType === Node.ELEMENT_NODE) {
     const style = window.getComputedStyle ? window.getComputedStyle(current) : null;
-
-    if (typeof current.checkVisibility === 'function') {
-      try {
-        if (
-          !current.checkVisibility({
-            checkOpacity: false,
-            checkVisibilityCSS: true
-          })
-        ) {
-          if (!style || style.display !== 'contents') {
-            return false;
-          }
-        }
-      } catch (error) {
-        // Fall back to computed style checks.
-      }
-    }
-
     if (style) {
       if (style.display === 'none') return false;
       if (style.visibility === 'hidden' || style.visibility === 'collapse') return false;
     }
-
     if (current === document.body || current === document.documentElement) {
       break;
     }
@@ -485,46 +535,53 @@ function hasRenderableGlyphRect(range) {
   return false;
 }
 
+// One geometry read per text node instead of one per candidate word.
+function textNodeHasRenderableText(textNode) {
+  const nodeRange = document.createRange();
+  try {
+    nodeRange.selectNodeContents(textNode);
+  } catch (error) {
+    return false;
+  }
+  return hasRenderableGlyphRect(nodeRange);
+}
+
 function addRangeToTextNodeIndex(textNode, word, range) {
   if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
   let entries = textNodeRangeIndex.get(textNode);
   if (!entries) {
-    entries = [];
+    entries = new Map();
     textNodeRangeIndex.set(textNode, entries);
   }
-  entries.push({ word, range });
+  entries.set(range, word);
 }
 
 function removeRangeFromTextNodeIndex(textNode, range) {
   if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
   const entries = textNodeRangeIndex.get(textNode);
-  if (!entries || entries.length === 0) return;
-  const nextEntries = entries.filter((entry) => entry.range !== range);
-  if (nextEntries.length === 0) {
+  if (!entries) return;
+  entries.delete(range);
+  if (entries.size === 0) {
     textNodeRangeIndex.delete(textNode);
-    return;
   }
-  textNodeRangeIndex.set(textNode, nextEntries);
 }
 
 function removeRangeFromWordHighlights(word, range) {
   const ranges = highlights.get(word);
-  if (!ranges || ranges.length === 0) return;
-  const nextRanges = ranges.filter((item) => item !== range);
-  if (nextRanges.length === 0) {
+  if (!ranges) return;
+  ranges.delete(range);
+  if (ranges.size === 0) {
     highlights.delete(word);
-    return;
   }
-  highlights.set(word, nextRanges);
 }
 
 function clearHighlightsForTextNode(textNode) {
   if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return 0;
   const entries = textNodeRangeIndex.get(textNode);
-  if (!entries || entries.length === 0) return 0;
+  if (!entries || entries.size === 0) return 0;
   let removed = 0;
 
-  entries.forEach(({ word, range }) => {
+  entries.forEach((word, range) => {
     if (unknownHL) unknownHL.delete(range);
     removeRangeFromWordHighlights(word, range);
     removed += 1;
@@ -556,33 +613,34 @@ function clearHighlightsInSubtree(node) {
 }
 
 function getTextNodeHighlightEntries(textNode) {
-  if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return [];
-  return textNodeRangeIndex.get(textNode) || [];
+  if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return null;
+  return textNodeRangeIndex.get(textNode) || null;
 }
 
-function isElementVisibleForHighlightCached(element, visibilityCache = null) {
-  if (!visibilityCache || !element) {
-    return isElementVisibleForHighlight(element);
+function isElementVisibleForHighlightCached(element, passCache = null) {
+  const cache = passCache ? passCache.visibility : null;
+  if (!cache || !element) {
+    return isElementVisibleForHighlight(element, passCache);
   }
-  if (visibilityCache.has(element)) {
-    return visibilityCache.get(element);
+  if (cache.has(element)) {
+    return cache.get(element);
   }
-  const visible = isElementVisibleForHighlight(element);
-  visibilityCache.set(element, visible);
+  const visible = isElementVisibleForHighlight(element, passCache);
+  cache.set(element, visible);
   return visible;
 }
 
-function highlightWordsInTextNode(textNode, wordsSet = null, visibilityCache = null) {
+function highlightWordsInTextNode(textNode, wordsSet = null, passCache = null) {
   if (!siteEnabled) return 0;
   if (!unknownHL) return 0;
   if (!textNode || !textNode.textContent.trim()) return 0;
   if (highlightRangeCount >= MAX_HIGHLIGHT_RANGES) return 0;
   const parentElement = textNode.parentElement;
-  if (isInWordPopup(textNode.parentNode)) return 0;
-  if (shouldSkipRichEditorContext(parentElement)) return 0;
-  if (isInHighChurnTextContext(parentElement)) return 0;
-  if (HIGHLIGHT_VISIBLE_ONLY && !isElementVisibleForHighlightCached(parentElement, visibilityCache))
-    return 0;
+  if (!isElementProcessableForHighlight(parentElement, passCache)) return 0;
+  if (HIGHLIGHT_VISIBLE_ONLY) {
+    if (!isElementVisibleForHighlightCached(parentElement, passCache)) return 0;
+    if (!textNodeHasRenderableText(textNode)) return 0;
+  }
   const text = textNode.textContent;
   let addedCount = 0;
   ENGLISH_WORD_PATTERN.lastIndex = 0;
@@ -598,12 +656,13 @@ function highlightWordsInTextNode(textNode, wordsSet = null, visibilityCache = n
       const range = new Range();
       range.setStart(textNode, match.index);
       range.setEnd(textNode, match.index + word.length);
-      if (HIGHLIGHT_VISIBLE_ONLY && !hasRenderableGlyphRect(range)) {
-        continue;
-      }
       unknownHL.add(range);
-      if (!highlights.has(word)) highlights.set(word, []);
-      highlights.get(word).push(range);
+      let wordRanges = highlights.get(word);
+      if (!wordRanges) {
+        wordRanges = new Set();
+        highlights.set(word, wordRanges);
+      }
+      wordRanges.add(range);
       addRangeToTextNodeIndex(textNode, word, range);
       highlightRangeCount += 1;
       addedCount += 1;
@@ -622,7 +681,7 @@ function removeHighlightForWord(word) {
       if (unknownHL) unknownHL.delete(range);
       removeRangeFromTextNodeIndex(range.startContainer, range);
     });
-    highlightRangeCount = Math.max(0, highlightRangeCount - ranges.length);
+    highlightRangeCount = Math.max(0, highlightRangeCount - ranges.size);
     highlights.delete(lowercaseWord);
   }
 }
@@ -630,7 +689,9 @@ function removeHighlightForWord(word) {
 function reHighlightWord(word) {
   if (!siteEnabled) return;
   removeHighlightForWord(word);
-  processRootAndOpenShadowRoots(document.body, new Set([word.toLowerCase()]));
+  processRootAndOpenShadowRoots(document.body, new Set([word.toLowerCase()]), {
+    passCache: createHighlightPassCache()
+  });
 }
 
 function clearAllHighlights() {
@@ -677,10 +738,13 @@ function updateHighlights() {
           const modeState = updateHighlightModeStateFromStorage(result);
           syncHighlightRuntimeForMode(modeState);
 
-          if (modeState.mode === 'all') {
-            processRootAndOpenShadowRoots(document.body);
-          } else if (hasActiveHighlightMode(modeState) && modeState.mode === 'selected') {
-            processRootAndOpenShadowRoots(document.body, modeState.wordsSet);
+          if (hasActiveHighlightMode(modeState)) {
+            pruneDisconnectedShadowRootObservers();
+            const wordsSet = modeState.mode === 'selected' ? modeState.wordsSet : null;
+            processRootAndOpenShadowRoots(document.body, wordsSet, {
+              passCache: createHighlightPassCache(),
+              observeShadowRoots: true
+            });
           }
         } catch (error) {
           console.error('Error refreshing highlights:', error);

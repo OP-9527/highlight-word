@@ -100,6 +100,9 @@ function handleMouseMove(event) {
     const latestEvent = handleMouseMove.latestEvent;
     if (!latestEvent) return;
 
+    // Nothing highlighted and no popup showing: skip the hit-test pipeline.
+    if (highlightRangeCount === 0 && !activePopup) return;
+
     const { clientX, clientY, target } = latestEvent;
     if (shouldSkipHoverProbe(clientX, clientY, target)) {
       return;
