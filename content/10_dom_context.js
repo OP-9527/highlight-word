@@ -184,6 +184,20 @@ function pruneDisconnectedShadowRootObservers() {
   });
 }
 
+function isNodeWithinAnyClass(node, classNames) {
+  let current = node;
+  while (current) {
+    if (current.nodeType === Node.ELEMENT_NODE && current.classList) {
+      for (const className of classNames) {
+        if (current.classList.contains(className)) return true;
+      }
+    }
+    if (current === document.body || current === document.documentElement) break;
+    current = getComposedParent(current);
+  }
+  return false;
+}
+
 function isComposedDescendant(node, ancestor) {
   if (!node || !ancestor) return false;
   let current = node;
@@ -419,11 +433,12 @@ function isInHighChurnTextContext(node) {
   const element = getContextElement(node);
   if (!element) return false;
 
-  const isReadableText = isReadableTextContext(element);
   if (closestSafely(element, TEXT_CONTEXT_SELECTORS.mediaShell)) {
     return !hasClosestSelector(element, TEXT_CONTEXT_SELECTORS.mediaText);
   }
-  if (closestSafely(element, TEXT_CONTEXT_SELECTORS.liveRegion)) return !isReadableText;
+  if (closestSafely(element, TEXT_CONTEXT_SELECTORS.liveRegion)) {
+    return !isReadableTextContext(element);
+  }
   if (closestSafely(element, TEXT_CONTEXT_SELECTORS.transientUi)) {
     return !hasClosestSelector(element, TEXT_CONTEXT_SELECTORS.mediaText);
   }

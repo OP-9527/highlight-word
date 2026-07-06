@@ -21,20 +21,10 @@ function shouldIgnoreHoverTarget(target) {
 function resolveHoverMatch(clientX, clientY, fallbackTarget = null) {
   const pointContext = getDeepestPointContext(clientX, clientY);
   const pointElements = getElementsAtPointCandidates(clientX, clientY, pointContext);
-  const hitTarget = pointElements[0] || pointContext.element || fallbackTarget;
-  const range = getCaretRangeAtPoint(clientX, clientY, pointContext.root);
-
-  let match = null;
-  if (range) {
-    match = findWordAtRange(range, clientX, clientY, pointContext.element);
-  }
-  if (!match) {
-    match = findWordAtPoint(clientX, clientY, pointContext, pointElements);
-  }
 
   return {
-    hitTarget,
-    match
+    hitTarget: pointElements[0] || pointContext.element || fallbackTarget,
+    match: findHighlightedWordMatchAtPoint(clientX, clientY, pointContext, pointElements)
   };
 }
 
@@ -98,6 +88,8 @@ function handleMouseMove(event) {
   requestAnimationFrame(() => {
     handleMouseMove.rafPending = false;
     const latestEvent = handleMouseMove.latestEvent;
+    // Release the target reference so removed DOM nodes can be collected.
+    handleMouseMove.latestEvent = null;
     if (!latestEvent) return;
 
     // Nothing highlighted and no popup showing: skip the hit-test pipeline.
@@ -132,6 +124,12 @@ function handleMouseMove(event) {
         precomputedWord: word,
         precomputedRect: hoverState.match.rect
       });
+      return;
+    }
+
+    if (word && activePopup) {
+      // Hovering the word the active popup belongs to: keep the popup alive.
+      clearTimeout(popupHideTimer);
       return;
     }
 
