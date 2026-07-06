@@ -202,13 +202,14 @@ function handleFileListChange(event) {
 function handleFileListClick(event) {
   const deleteButton = event.target.closest('.hlw-delete-file');
   if (deleteButton) {
-    deleteFile({ target: deleteButton });
+    deleteFile(Number.parseInt(deleteButton.dataset.index, 10));
     return;
   }
 
   const fileLabel = event.target.closest('.hlw-file-name');
   if (fileLabel) {
-    showFileContent({ preventDefault: () => event.preventDefault(), target: fileLabel });
+    event.preventDefault();
+    showFileContent(Number.parseInt(fileLabel.htmlFor.split('-')[1], 10));
   }
 }
 
@@ -249,8 +250,7 @@ function renderFileList() {
   );
 }
 
-function deleteFile(event) {
-  const index = Number.parseInt(event.target.getAttribute('data-index'), 10);
+function deleteFile(index) {
   if (!Number.isInteger(index)) return;
 
   chrome.storage.local.get(['uploadedFiles', 'selectedFiles'], function (result) {
@@ -377,14 +377,10 @@ function importKnownWords() {
   input.accept = '.txt';
   input.onchange = function (event) {
     const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = function (e) {
-        const content = e.target.result;
-        const words = content
-          .split('\n')
-          .map((word) => word.trim().toLowerCase())
-          .filter((word) => word);
+    if (!file) return;
+    readVocabularyFile(file)
+      .then(({ content }) => {
+        const words = parseVocabularyWords(content);
 
         const importedWords = [];
         words.forEach((word) => {
@@ -406,9 +402,10 @@ function importKnownWords() {
           });
         }
         renderWordList();
-      };
-      reader.readAsText(file);
-    }
+      })
+      .catch((error) => {
+        console.error('Error reading imported known words file:', error);
+      });
   };
   input.click();
 }
@@ -529,12 +526,14 @@ function createFileContentItem(line, originalIndex, fileIndex) {
 function handleFileContentClick(event) {
   const deleteButton = event.target.closest('.hlw-delete-line');
   if (!deleteButton) return;
-  deleteLine({ target: deleteButton }, deleteButton.dataset.fileIndex);
+  deleteLine(
+    Number.parseInt(deleteButton.dataset.index, 10),
+    Number.parseInt(deleteButton.dataset.fileIndex, 10)
+  );
 }
 
-function showFileContent(event) {
-  event.preventDefault();
-  const fileIndex = event.target.getAttribute('for').split('-')[1];
+function showFileContent(fileIndex) {
+  if (!Number.isInteger(fileIndex)) return;
   chrome.storage.local.get(['uploadedFiles'], function (result) {
     if (hasChromeStorageLastError('Error loading uploaded files')) return;
     const uploadedFiles = result.uploadedFiles || [];
@@ -565,9 +564,8 @@ function showFileContent(event) {
   });
 }
 
-function deleteLine(event, fileIndex) {
-  const lineIndex = Number.parseInt(event.target.getAttribute('data-index'), 10);
-  if (!Number.isInteger(lineIndex)) return;
+function deleteLine(lineIndex, fileIndex) {
+  if (!Number.isInteger(lineIndex) || !Number.isInteger(fileIndex)) return;
   chrome.storage.local.get(['uploadedFiles'], function (result) {
     if (hasChromeStorageLastError('Error loading uploaded files')) return;
     let uploadedFiles = result.uploadedFiles || [];
@@ -580,10 +578,7 @@ function deleteLine(event, fileIndex) {
       chrome.storage.local.set({ uploadedFiles: uploadedFiles }, function () {
         if (hasChromeStorageLastError('Error deleting vocabulary file line')) return;
         updateHighlights();
-        showFileContent({
-          preventDefault: () => {},
-          target: { getAttribute: () => `file-${fileIndex}` }
-        });
+        showFileContent(fileIndex);
       });
     } else {
       console.error('Error: File content not found');

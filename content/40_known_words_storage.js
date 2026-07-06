@@ -26,8 +26,10 @@ function addToKnownWords(word) {
 
 function getKnownWordsChunkIndex(key) {
   if (!key || !key.startsWith(STORAGE_KEY_PREFIX)) return null;
-  const index = Number(key.slice(STORAGE_KEY_PREFIX.length));
-  return Number.isInteger(index) && index >= 0 ? index : null;
+  const suffix = key.slice(STORAGE_KEY_PREFIX.length);
+  // Number('') and Number(' ') are 0, so require an explicit digit suffix.
+  if (!/^\d+$/.test(suffix)) return null;
+  return Number(suffix);
 }
 
 // This block owns the sync chunk contract used across extension versions.
@@ -232,14 +234,17 @@ function getSortedKnownWordChunkKeys(items) {
   });
 }
 
-function getKnownWordsMetadataCount(items) {
-  const count = items ? Number(items.knownWordsCount) : NaN;
+function getNonNegativeIntegerMetadata(items, key) {
+  const count = items ? Number(items[key]) : NaN;
   return Number.isInteger(count) && count >= 0 ? count : null;
 }
 
+function getKnownWordsMetadataCount(items) {
+  return getNonNegativeIntegerMetadata(items, 'knownWordsCount');
+}
+
 function getKnownWordsMetadataChunkCount(items) {
-  const count = items ? Number(items.knownWordsChunkCount) : NaN;
-  return Number.isInteger(count) && count >= 0 ? count : null;
+  return getNonNegativeIntegerMetadata(items, 'knownWordsChunkCount');
 }
 
 function readKnownWordsFromChunks(result, chunkKeys, totalWords) {

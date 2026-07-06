@@ -17,30 +17,24 @@ function handleMouseDown(event) {
   hideSelectionIcon();
 }
 
+function scheduleSelectionCheck(delay = SELECTION_CHECK_DELAY_MS) {
+  clearTimeout(selectionTimeout);
+  selectionTimeout = setTimeout(checkSelection, delay);
+}
+
 function handleMouseUp(event) {
   isMouseDown = false;
-  clearTimeout(selectionTimeout);
-  selectionTimeout = setTimeout(() => {
-    checkSelection();
-  }, SELECTION_CHECK_DELAY_MS);
+  scheduleSelectionCheck();
 }
 
 function handleSelectionChange() {
   if (isMouseDown) return; // 如果鼠标还在按下，不处理
-
-  clearTimeout(selectionTimeout);
-  selectionTimeout = setTimeout(() => {
-    checkSelection();
-  }, SELECTION_CHECK_DELAY_MS);
+  scheduleSelectionCheck();
 }
 
 function handleDoubleClick(event) {
-  // 双击事件会触发 selectionchange，所以这里不需要额外处理
-  // 但我们可以确保选择检查被执行
-  clearTimeout(selectionTimeout);
-  selectionTimeout = setTimeout(() => {
-    checkSelection();
-  }, SELECTION_DOUBLE_CLICK_DELAY_MS);
+  // 双击事件会触发 selectionchange，这里只是确保选择检查更快执行
+  scheduleSelectionCheck(SELECTION_DOUBLE_CLICK_DELAY_MS);
 }
 
 function handleDocumentClick(event) {
@@ -58,6 +52,13 @@ function checkSelection() {
   }
 
   const range = selection.getRangeAt(0);
+
+  // 扩展自身 UI（侧边栏、弹窗）里的选区不显示翻译图标
+  if (isExtensionUiNode(range.commonAncestorContainer)) {
+    hideSelectionIcon();
+    return;
+  }
+
   const selectedText = selection.toString().trim();
 
   // 检查是否是有效的英文单词或短语

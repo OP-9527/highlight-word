@@ -9,6 +9,13 @@ function getSelectedWordsCacheKey(selectedFiles, uploadedFiles) {
   return `${selectedFiles.join(',')}#${fileSignature}`;
 }
 
+function parseVocabularyWords(content) {
+  return (content || '')
+    .split('\n')
+    .map((word) => word.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function buildSelectedWordsSet(selectedFiles, uploadedFiles) {
   if (!selectedFiles || !uploadedFiles || selectedFiles.length === 0) return new Set();
 
@@ -19,12 +26,7 @@ function buildSelectedWordsSet(selectedFiles, uploadedFiles) {
   selectedFiles.forEach((fileIndex) => {
     const fileInfo = uploadedFiles[fileIndex];
     if (!fileInfo || !fileInfo.content) return;
-    fileInfo.content
-      .split('\n')
-      .map((w) => w.trim().toLowerCase())
-      .forEach((word) => {
-        if (word) wordsSet.add(word);
-      });
+    parseVocabularyWords(fileInfo.content).forEach((word) => wordsSet.add(word));
   });
   selectedWordsSetCache = { key: cacheKey, wordsSet };
   return wordsSet;
@@ -421,21 +423,11 @@ function isElementProcessableForHighlight(element, passCache = null) {
   return processable;
 }
 
+const SIDEBAR_CLASS_NAMES = ['hlw-word-sidebar', 'clipboard-history-sidebar'];
+const WORD_POPUP_CLASS_NAMES = ['hlw-word-popup', 'hlw-word-popup-host'];
+
 function isPartOfSidebar(node) {
-  let currentNode = node;
-  while (currentNode) {
-    if (
-      currentNode.nodeType === Node.ELEMENT_NODE &&
-      currentNode.classList &&
-      (currentNode.classList.contains('hlw-word-sidebar') ||
-        currentNode.classList.contains('clipboard-history-sidebar'))
-    ) {
-      return true;
-    }
-    if (currentNode === document.body || currentNode === document.documentElement) break;
-    currentNode = getComposedParent(currentNode);
-  }
-  return false;
+  return isNodeWithinAnyClass(node, SIDEBAR_CLASS_NAMES);
 }
 
 function processAllTextNodes(root, wordsSet = null, options = {}) {
@@ -465,20 +457,7 @@ function processAllTextNodes(root, wordsSet = null, options = {}) {
 }
 
 function isInWordPopup(node) {
-  let current = node;
-  while (current) {
-    if (
-      current.nodeType === Node.ELEMENT_NODE &&
-      current.classList &&
-      (current.classList.contains('hlw-word-popup') ||
-        current.classList.contains('hlw-word-popup-host'))
-    ) {
-      return true;
-    }
-    if (current === document.body || current === document.documentElement) break;
-    current = getComposedParent(current);
-  }
-  return false;
+  return isNodeWithinAnyClass(node, WORD_POPUP_CLASS_NAMES);
 }
 
 function isElementVisibleForHighlight(element, passCache = null) {
@@ -637,39 +616,48 @@ function highlightWordsInTextNode(textNode, wordsSet = null, passCache = null) {
   if (highlightRangeCount >= MAX_HIGHLIGHT_RANGES) return 0;
   const parentElement = textNode.parentElement;
   if (!isElementProcessableForHighlight(parentElement, passCache)) return 0;
-  if (HIGHLIGHT_VISIBLE_ONLY) {
-    if (!isElementVisibleForHighlightCached(parentElement, passCache)) return 0;
-    if (!textNodeHasRenderableText(textNode)) return 0;
-  }
-  const text = textNode.textContent;
-  let addedCount = 0;
-  ENGLISH_WORD_PATTERN.lastIndex = 0;
 
+  // Match words before any geometry read: regex work is cheap, while the
+  // visibility/rect checks force layout, so skip them for nodes with no hits.
+  const text = textNode.textContent;
+  const matches = [];
+  ENGLISH_WORD_PATTERN.lastIndex = 0;
   let match;
   while ((match = ENGLISH_WORD_PATTERN.exec(text)) !== null) {
-    if (highlightRangeCount >= MAX_HIGHLIGHT_RANGES) break;
     const word = match[0].toLowerCase();
     const shouldHighlight = wordsSet
       ? wordsSet.has(word) && !knownWords.has(word)
       : !knownWords.has(word);
     if (shouldHighlight) {
-      const range = new Range();
-      range.setStart(textNode, match.index);
-      range.setEnd(textNode, match.index + word.length);
-      unknownHL.add(range);
-      let wordRanges = highlights.get(word);
-      if (!wordRanges) {
-        wordRanges = new Set();
-        highlights.set(word, wordRanges);
-      }
-      wordRanges.add(range);
-      addRangeToTextNodeIndex(textNode, word, range);
-      highlightRangeCount += 1;
-      addedCount += 1;
+      matches.push({ word, index: match.index });
     }
   }
-
   ENGLISH_WORD_PATTERN.lastIndex = 0;
+  if (matches.length === 0) return 0;
+
+  if (HIGHLIGHT_VISIBLE_ONLY) {
+    if (!isElementVisibleForHighlightCached(parentElement, passCache)) return 0;
+    if (!textNodeHasRenderableText(textNode)) return 0;
+  }
+
+  let addedCount = 0;
+  for (const { word, index } of matches) {
+    if (highlightRangeCount >= MAX_HIGHLIGHT_RANGES) break;
+    const range = new Range();
+    range.setStart(textNode, index);
+    range.setEnd(textNode, index + word.length);
+    unknownHL.add(range);
+    let wordRanges = highlights.get(word);
+    if (!wordRanges) {
+      wordRanges = new Set();
+      highlights.set(word, wordRanges);
+    }
+    wordRanges.add(range);
+    addRangeToTextNodeIndex(textNode, word, range);
+    highlightRangeCount += 1;
+    addedCount += 1;
+  }
+
   return addedCount;
 }
 

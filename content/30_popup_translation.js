@@ -110,16 +110,7 @@ function resolvePopupPayloadFromEvent(event) {
 
   if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return null;
 
-  const pointContext = getDeepestPointContext(event.clientX, event.clientY);
-  const range = getCaretRangeAtPoint(event.clientX, event.clientY, pointContext.root);
-  let match = null;
-
-  if (range) {
-    match = findWordAtRange(range, event.clientX, event.clientY, pointContext.element);
-  }
-  if (!match) {
-    match = findWordAtPoint(event.clientX, event.clientY, pointContext);
-  }
+  const match = findHighlightedWordMatchAtPoint(event.clientX, event.clientY);
 
   if (!match || !isTrackedHighlightedWord(match.word) || !match.rect) return null;
   return {
@@ -165,17 +156,6 @@ function isPopupSessionStale(session) {
   );
 }
 
-function fetchTranslationWithAbort(word, signal) {
-  return Promise.race([
-    getTranslation(word, signal),
-    new Promise((_, reject) => {
-      signal.addEventListener('abort', () => reject(new Error('Translation aborted')), {
-        once: true
-      });
-    })
-  ]);
-}
-
 function extractPopupTranslationData(word, translationResponse) {
   const translationData = {
     googleTranslation: '',
@@ -216,7 +196,7 @@ async function showPopup(event) {
   const session = beginPopupSession(payload.word, payload.rect, payload.hideKnownButton);
 
   try {
-    const translationData = await fetchTranslationWithAbort(payload.word, session.signal);
+    const translationData = await getTranslation(payload.word, session.signal);
     if (isPopupSessionStale(session)) return;
 
     updatePopupContent(
@@ -264,18 +244,14 @@ const extractWordDetails = (htmlContent) => {
     definitionTexts.push(`${pos} ${meaning}`);
   });
 
-  // 获取词形变化
-  const plural = doc.querySelector('.hd_div1 .hd_if .p1-5');
-  // 复数形式
-  const pluralText = plural ? plural.textContent.trim() : null;
-
-  // 现在分词
-  const presentParticiple = doc.querySelector('.hd_div1 .hd_if .p1-5:nth-of-type(2)');
-  const presentParticipleText = presentParticiple ? presentParticiple.textContent.trim() : null;
-
-  // 过去分词
-  const pastTense = doc.querySelector('.hd_div1 .hd_if .p1-5:nth-of-type(3)');
-  const pastTenseText = pastTense ? pastTense.textContent.trim() : null;
+  // 获取词形变化（依次为复数、现在分词、过去分词）。
+  // 注意不能用 :nth-of-type——它按同类型兄弟元素计数，而词形值和标签交错排列。
+  const wordForms = doc.querySelectorAll('.hd_div1 .hd_if .p1-5');
+  const getWordFormText = (index) =>
+    wordForms[index] ? wordForms[index].textContent.trim() : null;
+  const pluralText = getWordFormText(0);
+  const presentParticipleText = getWordFormText(1);
+  const pastTenseText = getWordFormText(2);
 
   let bingdictTranslation = {
     pronunciation: {
@@ -543,13 +519,9 @@ function isPointInRange(range, x, y, pointRange = null, pointElement = null) {
   if (isRootHit && pointRange) {
     return false;
   }
-  let skipContainCheck = false;
-  if (parentElement && window.getComputedStyle) {
-    const parentStyle = window.getComputedStyle(parentElement);
-    if (parentStyle && parentStyle.pointerEvents === 'none') {
-      skipContainCheck = true;
-    }
-  }
+  const parentStyle =
+    parentElement && window.getComputedStyle ? window.getComputedStyle(parentElement) : null;
+  const skipContainCheck = !!(parentStyle && parentStyle.pointerEvents === 'none');
   if (
     !skipContainCheck &&
     parentElement &&
@@ -571,9 +543,8 @@ function isPointInRange(range, x, y, pointRange = null, pointElement = null) {
     }
   }
   let fontSize = DEFAULT_POINT_HIT_FONT_SIZE_PX;
-  if (parentElement && window.getComputedStyle) {
-    const style = window.getComputedStyle(parentElement);
-    const parsedFontSize = parseFloat(style.fontSize);
+  if (parentStyle) {
+    const parsedFontSize = parseFloat(parentStyle.fontSize);
     if (Number.isFinite(parsedFontSize)) {
       fontSize = parsedFontSize;
     }
@@ -807,6 +778,20 @@ function findWordAtPoint(x, y, existingPointContext = null, existingPointElement
     }
   }
   return findWordFromElementCandidates(pointElements, x, y);
+}
+
+// Shared caret-first hit-test pipeline for the hover and popup paths.
+function findHighlightedWordMatchAtPoint(x, y, pointContext = null, pointElements = null) {
+  const context = pointContext || getDeepestPointContext(x, y);
+  const range = getCaretRangeAtPoint(x, y, context.root);
+  let match = null;
+  if (range) {
+    match = findWordAtRange(range, x, y, context.element);
+  }
+  if (!match) {
+    match = findWordAtPoint(x, y, context, pointElements);
+  }
+  return match;
 }
 
 function getPopupRoot(popup) {
