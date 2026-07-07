@@ -1,12 +1,7 @@
 
-async function getTranslation(word, signal) {
-  const cacheKey = word.toLowerCase();
-  const cachedResult = getCachedTranslation(cacheKey);
-
-  if (cachedResult) {
-    return cachedResult;
-  }
-
+// ponytail: caching lives only in the background LRU (cross-tab); each popup
+// re-parses the cached HTML. Add a content-side cache if popup latency shows.
+function getTranslation(word, signal) {
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       signal?.removeEventListener('abort', onAbort);
@@ -28,52 +23,10 @@ async function getTranslation(word, signal) {
       } else if (response.error) {
         reject(new Error(response.error));
       } else {
-        const translationData = extractPopupTranslationData(word, response);
-        cacheTranslation(cacheKey, translationData);
-        resolve(translationData);
+        resolve(extractPopupTranslationData(word, response));
       }
     });
   });
-}
-
-function getCachedTranslation(key) {
-  const cachedEntry = translationCache.get(key);
-  if (cachedEntry) {
-    const now = Date.now();
-    if (now - cachedEntry.timestamp < CACHE_EXPIRATION_TIME) {
-      cachedEntry.timestamp = now;
-      return cachedEntry.translation;
-    } else {
-      translationCache.delete(key);
-    }
-  }
-  return null;
-}
-
-function pruneTranslationCache(now = Date.now()) {
-  translationCache.forEach((entry, key) => {
-    if (!entry || now - entry.timestamp >= CACHE_EXPIRATION_TIME) {
-      translationCache.delete(key);
-    }
-  });
-
-  if (translationCache.size <= MAX_TRANSLATION_CACHE_SIZE) return;
-
-  const sortedEntries = Array.from(translationCache.entries()).sort(
-    (a, b) => a[1].timestamp - b[1].timestamp
-  );
-  const overflowCount = translationCache.size - MAX_TRANSLATION_CACHE_SIZE;
-
-  for (let i = 0; i < overflowCount; i++) {
-    const [key] = sortedEntries[i];
-    translationCache.delete(key);
-  }
-}
-
-function cacheTranslation(key, translation) {
-  const now = Date.now();
-  translationCache.set(key, { translation, timestamp: now });
-  pruneTranslationCache(now);
 }
 
 function normalizePopupWord(value) {
@@ -607,45 +560,6 @@ function resolveTextNodeFromRange(range) {
   return null;
 }
 
-function findWordAtRange(range, x, y, pointElement = null) {
-  if (!range) return null;
-  const hasPoint = Number.isFinite(x) && Number.isFinite(y);
-  const startContainer = resolveTextNodeFromRange(range);
-  const startOffset = range.startOffset;
-  const entries = getTextNodeHighlightEntries(startContainer);
-  const hasCharacterOffset =
-    startContainer && startContainer === range.startContainer && Number.isFinite(startOffset);
-
-  // Prioritize exact caret text-node match.
-  if (startContainer && entries && entries.size > 0) {
-    for (const [highlightRange, word] of entries) {
-      if (!highlightRange || highlightRange.startContainer !== startContainer) continue;
-      if (shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
-      if (hasCharacterOffset) {
-        if (startOffset < highlightRange.startOffset || startOffset > highlightRange.endOffset)
-          continue;
-      }
-      if (!hasPoint || isPointInRange(highlightRange, x, y, range, pointElement)) {
-        return { word, rect: highlightRange.getBoundingClientRect() };
-      }
-    }
-  }
-
-  // Non-point fallback: keep support for callers that pass only a range.
-  if (!hasPoint && entries && entries.size > 0) {
-    for (const [highlightRange, word] of entries) {
-      if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
-      if (
-        range.compareBoundaryPoints(Range.START_TO_START, highlightRange) >= 0 &&
-        range.compareBoundaryPoints(Range.END_TO_END, highlightRange) <= 0
-      ) {
-        return { word, rect: highlightRange.getBoundingClientRect() };
-      }
-    }
-  }
-  return null;
-}
-
 function forEachTextNodeInElementContext(
   rootNode,
   visitedTextNodes,
@@ -755,43 +669,26 @@ function findWordFromElementCandidates(pointElements, x, y) {
   return null;
 }
 
-function findWordAtPoint(x, y, existingPointContext = null, existingPointElements = null) {
+// Shared caret-first hit-test pipeline for the hover and popup paths: check the
+// highlight ranges indexed on the caret's text node, then fall back to scanning
+// text nodes under the elements at the point.
+function findHighlightedWordMatchAtPoint(x, y, pointContext = null, pointElements = null) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  const pointContext = existingPointContext || getDeepestPointContext(x, y);
-  const pointElements = existingPointElements || getElementsAtPointCandidates(x, y, pointContext);
-  const pointRange = getCaretRangeAtPoint(x, y, pointContext.root);
-  if (!pointRange) {
-    return findWordFromElementCandidates(pointElements, x, y);
-  }
-  const textNode = resolveTextNodeFromRange(pointRange);
-  if (!textNode) {
-    return findWordFromElementCandidates(pointElements, x, y);
-  }
-
-  const entries = getTextNodeHighlightEntries(textNode);
-  if (entries) {
-    for (const [highlightRange, word] of entries) {
-      if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
-      if (isPointInRange(highlightRange, x, y, pointRange, pointContext.element)) {
-        return { word, rect: highlightRange.getBoundingClientRect() };
+  const context = pointContext || getDeepestPointContext(x, y);
+  const caretRange = getCaretRangeAtPoint(x, y, context.root);
+  if (caretRange) {
+    const entries = getTextNodeHighlightEntries(resolveTextNodeFromRange(caretRange));
+    if (entries) {
+      for (const [highlightRange, word] of entries) {
+        if (!highlightRange || shouldSkipRichEditorContext(highlightRange.startContainer)) continue;
+        if (isPointInRange(highlightRange, x, y, caretRange, context.element)) {
+          return { word, rect: highlightRange.getBoundingClientRect() };
+        }
       }
     }
   }
-  return findWordFromElementCandidates(pointElements, x, y);
-}
-
-// Shared caret-first hit-test pipeline for the hover and popup paths.
-function findHighlightedWordMatchAtPoint(x, y, pointContext = null, pointElements = null) {
-  const context = pointContext || getDeepestPointContext(x, y);
-  const range = getCaretRangeAtPoint(x, y, context.root);
-  let match = null;
-  if (range) {
-    match = findWordAtRange(range, x, y, context.element);
-  }
-  if (!match) {
-    match = findWordAtPoint(x, y, context, pointElements);
-  }
-  return match;
+  const candidates = pointElements || getElementsAtPointCandidates(x, y, context);
+  return findWordFromElementCandidates(candidates, x, y);
 }
 
 function getPopupRoot(popup) {
@@ -1017,9 +914,7 @@ function hidePopup() {
     currentTranslationController = null;
   }
 
-  if (activePopup && document.body.contains(activePopup)) {
-    document.body.removeChild(activePopup);
-  }
+  if (activePopup) activePopup.remove();
   activePopup = null;
 }
 

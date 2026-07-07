@@ -168,8 +168,6 @@ function cleanupOnUnload() {
     currentTranslationController.abort();
   }
 
-  // 清除缓存
-  translationCache.clear();
   // 移除文本选择相关的事件监听器
   removeTextSelectionListeners();
   removeGlobalHoverListeners();

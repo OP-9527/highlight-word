@@ -306,9 +306,7 @@ function loadKnownWords(callback, retryCount = 0) {
       const staleChunkKeys = hasMissingWordCount
         ? []
         : allChunkKeys.filter((key) => getKnownWordsChunkIndex(key) >= expectedChunks);
-      if (staleChunkKeys.length > 0) {
-        chrome.storage.sync.remove(staleChunkKeys);
-      }
+      removeKeysThen(staleChunkKeys);
 
       const loadedWords = readKnownWordsFromChunks(result, chunkKeys, totalWords);
 
