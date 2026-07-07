@@ -153,16 +153,13 @@ async function handleFileUpload(event) {
   if (fileInfos.length === 0) return;
 
   chrome.storage.local.get(['uploadedFiles'], function (result) {
-    if (chrome.runtime.lastError) {
-      console.error(`Error loading uploaded files: ${chrome.runtime.lastError.message}`);
-      return;
-    }
+    if (hasChromeStorageLastError('Error loading uploaded files')) return;
 
     const uploadedFiles = [...(result.uploadedFiles || []), ...fileInfos];
+    // The storage listener refreshes highlights for local setting changes.
     chrome.storage.local.set({ uploadedFiles }, function () {
       if (hasChromeStorageLastError('Error saving uploaded files')) return;
       renderFileList();
-      updateHighlights();
     });
   });
 }
@@ -225,12 +222,11 @@ function renderFileList() {
       const uploadedFiles = result.uploadedFiles || [];
       const selectedFiles = result.selectedFiles || [];
 
-      // 如果 highlightToggle 未定义（首次使用），则设置为 true
+      // 如果 highlightToggle 未定义（首次使用），则设置为 true；
+      // 存储监听器会在写入后刷新高亮
       if (result.highlightToggle === undefined) {
         chrome.storage.local.set({ highlightToggle: true }, () => {
-          if (hasChromeStorageLastError('Error saving default highlight toggle')) return;
-          // 设置完默认值后更新高亮
-          updateHighlights();
+          hasChromeStorageLastError('Error saving default highlight toggle');
         });
         result.highlightToggle = true;
       }
@@ -264,12 +260,12 @@ function deleteFile(index) {
     // Remove the file index from selectedFiles and adjust remaining indices
     selectedFiles = selectedFiles.filter((i) => i !== index).map((i) => (i > index ? i - 1 : i));
 
+    // The storage listener refreshes highlights for local setting changes.
     chrome.storage.local.set(
       { uploadedFiles: uploadedFiles, selectedFiles: selectedFiles },
       function () {
         if (hasChromeStorageLastError('Error deleting uploaded file')) return;
         renderFileList();
-        updateHighlights();
       }
     );
   });
@@ -575,9 +571,9 @@ function deleteLine(lineIndex, fileIndex) {
       content.splice(lineIndex, 1);
       fileInfo.content = content.join('\n');
       uploadedFiles[fileIndex] = fileInfo;
+      // The storage listener refreshes highlights for local setting changes.
       chrome.storage.local.set({ uploadedFiles: uploadedFiles }, function () {
         if (hasChromeStorageLastError('Error deleting vocabulary file line')) return;
-        updateHighlights();
         showFileContent(fileIndex);
       });
     } else {
@@ -603,7 +599,7 @@ function exportKnownWords() {
 function toggleHighlight(event) {
   const isChecked = event.target.checked;
 
-  // 保存 highlight toggle 状态
+  // 保存 highlight toggle 状态；存储监听器负责刷新高亮
   chrome.storage.local.set({ highlightToggle: isChecked }, () => {
     if (hasChromeStorageLastError('Error saving highlight toggle')) {
       event.target.checked = !isChecked;
@@ -611,8 +607,7 @@ function toggleHighlight(event) {
     }
     if (isChecked) {
       // 如果开启了 highlight all，取消所有文件的选择
-      const fileCheckboxes = document.querySelectorAll('.hlw-file-checkbox');
-      fileCheckboxes.forEach((checkbox) => {
+      document.querySelectorAll('.hlw-file-checkbox').forEach((checkbox) => {
         checkbox.checked = false;
       });
 
@@ -620,12 +615,8 @@ function toggleHighlight(event) {
       chrome.storage.local.set({ selectedFiles: [] }, () => {
         if (hasChromeStorageLastError('Error clearing selected vocabulary files')) {
           renderFileList();
-          return;
         }
-        updateHighlights();
       });
-    } else {
-      updateHighlights();
     }
   });
 }
@@ -661,13 +652,11 @@ function toggleFileSelection(event) {
       selectedFiles = selectedFiles.filter((index) => index !== fileIndex);
     }
 
-    // 保存选中文件的状态并更新高亮
+    // 保存选中文件的状态；存储监听器负责刷新高亮
     chrome.storage.local.set({ ...updates, selectedFiles: selectedFiles }, () => {
       if (hasChromeStorageLastError('Error saving selected vocabulary files')) {
         renderFileList();
-        return;
       }
-      updateHighlights();
     });
   });
 }

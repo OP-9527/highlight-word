@@ -70,9 +70,8 @@ function checkSelection() {
 }
 
 function isValidEnglishText(text) {
-  // 检查是否包含至少一个英文字母，且长度至少为1个字母
-  const englishPattern = /[a-zA-Z]/;
-  return englishPattern.test(text) && text.length >= 1;
+  // 检查是否包含至少一个英文字母
+  return /[a-zA-Z]/.test(text);
 }
 
 function createSelectionIconImage() {
@@ -158,12 +157,10 @@ function bindSelectionIconEvents(icon, text, rect) {
 
   icon.addEventListener('mouseenter', () => {
     icon.style.transform = 'scale(1.1)';
-    icon.style.background = SELECTION_ICON_BACKGROUND;
   });
 
   icon.addEventListener('mouseleave', () => {
     icon.style.transform = 'scale(1)';
-    icon.style.background = SELECTION_ICON_BACKGROUND;
   });
 }
 
@@ -189,31 +186,16 @@ function hideSelectionIcon() {
 }
 
 function handleSelectionIconClick(text, rect) {
-  // 隐藏选择图标
   hideSelectionIcon();
 
+  // 创建图标时记录的 rect 是视口坐标，页面滚动后会过期；优先用当前选区的位置
+  const selection = window.getSelection();
+  const liveRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+  const liveRect = liveRange ? liveRange.getBoundingClientRect() : null;
+  const anchorRect = liveRect && (liveRect.width || liveRect.height) ? liveRect : rect;
+
   // 清除当前选择
-  window.getSelection()?.removeAllRanges();
+  selection?.removeAllRanges();
 
-  // 确保 rect 对象有正确的属性
-  const adjustedRect = {
-    left: rect.left,
-    right: rect.right,
-    top: rect.top,
-    bottom: rect.bottom,
-    width: rect.width,
-    height: rect.height
-  };
-
-  // 创建一个模拟的事件来触发现有的 showPopup 函数
-  const mockEvent = {
-    isFromSelectionIcon: true,
-    selectedText: text,
-    rect: adjustedRect,
-    preventDefault: () => {},
-    stopPropagation: () => {}
-  };
-
-  // 调用现有的 showPopup 函数
-  showPopup(mockEvent);
+  showPopup({ isFromSelectionIcon: true, selectedText: text, rect: anchorRect });
 }

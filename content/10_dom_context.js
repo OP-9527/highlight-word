@@ -40,34 +40,13 @@ function removeGlobalHoverListeners() {
 }
 
 function ensureDomContentLoadedListener() {
-  if (domContentLoadedHandler) return;
+  // updateHighlights reads settings and handles invalid contexts itself; when the
+  // document is already loaded, enableSiteFeatures runs it directly instead.
+  if (domContentLoadedHandler || document.readyState !== 'loading') return;
   domContentLoadedHandler = () => {
-    if (!siteEnabled) return;
-    if (!isExtensionContextValid()) {
-      handleExtensionContextInvalidated();
-      return;
-    }
-    try {
-      chrome.storage.local.get(['highlightToggle', 'selectedFiles'], function (result) {
-        if (hasChromeStorageLastError('Error loading highlight settings')) return;
-        if (result.highlightToggle || (result.selectedFiles && result.selectedFiles.length > 0)) {
-          requestAnimationFrame(() => {
-            updateHighlights();
-          });
-        }
-      });
-    } catch (error) {
-      if (isExtensionContextInvalidatedError(error)) {
-        handleExtensionContextInvalidated();
-        return;
-      }
-      throw error;
-    }
+    if (siteEnabled) updateHighlights();
   };
   document.addEventListener('DOMContentLoaded', domContentLoadedHandler);
-  if (document.readyState !== 'loading') {
-    domContentLoadedHandler();
-  }
 }
 
 function removeDomContentLoadedListener() {
@@ -466,16 +445,5 @@ function isMutationRelevantForHighlights(mutation) {
     if (!shouldIgnoreMutationNode(node)) return true;
   }
 
-  return false;
-}
-
-function shouldRefreshHighlightsForMutations(mutations) {
-  if (!hasActiveHighlightMode()) return false;
-
-  for (const mutation of mutations) {
-    if (isMutationRelevantForHighlights(mutation)) {
-      return true;
-    }
-  }
   return false;
 }

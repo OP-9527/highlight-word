@@ -122,11 +122,11 @@ function schedulePendingMutationProcessing() {
       return;
     }
 
+    // Records were already filtered by queueMutationRecords.
     const records = pendingMutationRecords;
     pendingMutationRecords = [];
     if (!records || records.length === 0) return;
 
-    if (!shouldRefreshHighlightsForMutations(records)) return;
     processMutationsIncrementally(records);
   });
 }
@@ -632,7 +632,6 @@ function highlightWordsInTextNode(textNode, wordsSet = null, passCache = null) {
       matches.push({ word, index: match.index });
     }
   }
-  ENGLISH_WORD_PATTERN.lastIndex = 0;
   if (matches.length === 0) return 0;
 
   if (HIGHLIGHT_VISIBLE_ONLY) {

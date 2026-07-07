@@ -1,6 +1,4 @@
 // Central configuration keeps timing, storage, and UI limits visible during refactors.
-const CACHE_EXPIRATION_TIME = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-const MAX_TRANSLATION_CACHE_SIZE = 500;
 const HIGHLIGHT_VISIBLE_ONLY = true;
 const POPUP_HIDE_DELAY_MS = 300;
 const POPUP_VIEWPORT_GAP_PX = 10;
@@ -47,7 +45,6 @@ let highlights = new Map();
 let knownWords = new Set();
 let activePopup = null;
 let popupHideTimer = null;
-let translationCache = new Map();
 let currentTranslationController = null;
 let knownWordsSyncWriteDepth = 0;
 let knownWordsSaveInProgress = false;
