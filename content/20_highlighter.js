@@ -122,7 +122,6 @@ function schedulePendingMutationProcessing() {
       return;
     }
 
-    // Records were already filtered by queueMutationRecords.
     const records = pendingMutationRecords;
     pendingMutationRecords = [];
     if (!records || records.length === 0) return;
@@ -131,19 +130,17 @@ function schedulePendingMutationProcessing() {
   });
 }
 
+// Relevance filtering runs later in the rAF batch so the MutationObserver
+// callback itself stays cheap on high-churn pages. The buffer is capped
+// because background tabs never fire rAF; an overflowing batch falls back to
+// a full refresh, which makes dropping the extra records safe.
 function queueMutationRecords(mutations) {
   if (!mutations || mutations.length === 0) return;
   if (!hasActiveHighlightMode()) return;
 
-  const relevantMutations = [];
-  for (const mutation of mutations) {
-    if (isMutationRelevantForHighlights(mutation)) {
-      relevantMutations.push(mutation);
-    }
+  if (pendingMutationRecords.length < MAX_PENDING_MUTATION_RECORDS) {
+    pendingMutationRecords.push(...mutations);
   }
-  if (relevantMutations.length === 0) return;
-
-  pendingMutationRecords.push(...relevantMutations);
   schedulePendingMutationProcessing();
 }
 
@@ -258,22 +255,25 @@ function refreshMutatedRoots(work, wordsSet, passCache) {
   });
 }
 
-function shouldUseFullHighlightRefresh(mutations) {
-  return !highlightModeState.ready || mutations.length > MAX_INCREMENTAL_MUTATIONS;
-}
-
-// Mutation work is split into collect/apply phases so the observer path stays cheap.
+// Mutation work is split into filter/collect/apply phases so the observer path stays cheap.
 function processMutationsIncrementally(mutations) {
-  if (shouldUseFullHighlightRefresh(mutations)) {
+  if (!highlightModeState.ready || mutations.length >= MAX_PENDING_MUTATION_RECORDS) {
     scheduleHighlightRefresh();
     return;
   }
 
   if (!hasActiveHighlightMode()) return;
 
+  const relevantMutations = mutations.filter(isMutationRelevantForHighlights);
+  if (relevantMutations.length === 0) return;
+  if (relevantMutations.length > MAX_INCREMENTAL_MUTATIONS) {
+    scheduleHighlightRefresh();
+    return;
+  }
+
   const wordsSet = highlightModeState.mode === 'selected' ? highlightModeState.wordsSet : null;
   const passCache = createHighlightPassCache();
-  const work = collectIncrementalHighlightWork(mutations);
+  const work = collectIncrementalHighlightWork(relevantMutations);
 
   pruneDisconnectedShadowRootObservers();
   refreshMutatedTextNodes(work.textNodesToRefresh, wordsSet, passCache);

@@ -429,7 +429,6 @@ function initialize() {
   loadKnownWords(() => {
     if (isTopLevelFrame()) {
       createSidebar();
-      renderWordList();
     }
     getCurrentSitePermission().then((isEnabled) => {
       if (isEnabled) {

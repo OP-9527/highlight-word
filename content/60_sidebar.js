@@ -285,6 +285,7 @@ function toggleSidebar() {
 
   sidebarOpen = !sidebarOpen;
   sidebar.classList.toggle('hlw-open', sidebarOpen);
+  if (sidebarOpen) renderWordList();
 }
 
 // The background action asks the content script to toggle the page sidebar.
@@ -356,6 +357,9 @@ function ensureWordSearchBox(wordList) {
 }
 
 function renderWordList() {
+  // The list is invisible while the sidebar is closed; toggleSidebar re-renders
+  // on open, so skipping here avoids rebuilding a large hidden DOM list.
+  if (!sidebarOpen) return;
   const wordList = document.getElementById('wordList');
   const knownWordHeader = document.querySelector('.hlw-sidebar-content.hlw-learned h2');
   if (!wordList || !knownWordHeader) return;
@@ -599,23 +603,22 @@ function exportKnownWords() {
 function toggleHighlight(event) {
   const isChecked = event.target.checked;
 
-  // 保存 highlight toggle 状态；存储监听器负责刷新高亮
-  chrome.storage.local.set({ highlightToggle: isChecked }, () => {
+  // 一次写入两个键，存储监听器只触发一次全页高亮刷新
+  const updates = { highlightToggle: isChecked };
+  if (isChecked) {
+    // 如果开启了 highlight all，清空已选文件列表
+    updates.selectedFiles = [];
+  }
+
+  chrome.storage.local.set(updates, () => {
     if (hasChromeStorageLastError('Error saving highlight toggle')) {
       event.target.checked = !isChecked;
       return;
     }
     if (isChecked) {
-      // 如果开启了 highlight all，取消所有文件的选择
+      // 取消所有文件的选择
       document.querySelectorAll('.hlw-file-checkbox').forEach((checkbox) => {
         checkbox.checked = false;
-      });
-
-      // 清空已选文件列表
-      chrome.storage.local.set({ selectedFiles: [] }, () => {
-        if (hasChromeStorageLastError('Error clearing selected vocabulary files')) {
-          renderFileList();
-        }
       });
     }
   });

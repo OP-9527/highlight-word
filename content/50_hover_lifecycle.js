@@ -11,20 +11,26 @@ function isPointerOverActivePopup(clientX, clientY) {
 
 function shouldIgnoreHoverTarget(target) {
   if (!target) return false;
-  return (
+  // The ancestor-chain checks are expensive and the pointer usually stays on
+  // one element for many frames, so memoize the last verdict.
+  const memo = shouldIgnoreHoverTarget.memo;
+  if (memo && memo.target === target) return memo.result;
+  const result =
     isExtensionUiNode(target) ||
     shouldSkipRichEditorContext(target) ||
-    isInHighChurnTextContext(target)
-  );
+    isInHighChurnTextContext(target);
+  shouldIgnoreHoverTarget.memo = { target, result };
+  return result;
 }
 
 function resolveHoverMatch(clientX, clientY, fallbackTarget = null) {
   const pointContext = getDeepestPointContext(clientX, clientY);
-  const pointElements = getElementsAtPointCandidates(clientX, clientY, pointContext);
 
+  // findHighlightedWordMatchAtPoint only needs elementsFromPoint candidates
+  // when the caret-first path misses, so let it compute them lazily.
   return {
-    hitTarget: pointElements[0] || pointContext.element || fallbackTarget,
-    match: findHighlightedWordMatchAtPoint(clientX, clientY, pointContext, pointElements)
+    hitTarget: pointContext.element || fallbackTarget,
+    match: findHighlightedWordMatchAtPoint(clientX, clientY, pointContext)
   };
 }
 

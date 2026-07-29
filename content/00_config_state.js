@@ -13,6 +13,7 @@ const MAX_TEXT_NODES_PER_HIGHLIGHT_PASS = 4500;
 const FULL_HIGHLIGHT_REFRESH_DEBOUNCE_MS = 250;
 const HIGHLIGHT_REFRESH_STUCK_MS = 10000;
 const MAX_INCREMENTAL_MUTATIONS = 1200;
+const MAX_PENDING_MUTATION_RECORDS = 4800;
 const STORAGE_KEY_PREFIX = 'knownWords_';
 // chrome.storage.sync has an 8KB per-item limit, so known words stay chunked.
 const CHUNK_SIZE = 200;
