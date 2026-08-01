@@ -23,7 +23,7 @@ function getTranslation(word, signal) {
       } else if (response.error) {
         reject(new Error(response.error));
       } else {
-        resolve(extractPopupTranslationData(word, response));
+        resolve(extractPopupTranslationData(response));
       }
     });
   });
@@ -109,10 +109,10 @@ function isPopupSessionStale(session) {
   );
 }
 
-function extractPopupTranslationData(word, translationResponse) {
+function extractPopupTranslationData(translationResponse) {
   const translationData = {
     googleTranslation: '',
-    cambridgeTranslation: {},
+    cambridgePronunciation: [],
     bingdictTranslation: null
   };
 
@@ -126,10 +126,7 @@ function extractPopupTranslationData(word, translationResponse) {
   if (cambridgeResult?.html) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(cambridgeResult.html, 'text/html');
-    translationData.cambridgeTranslation = {
-      word,
-      pronunciation: extractPronunciation(doc)
-    };
+    translationData.cambridgePronunciation = extractPronunciation(doc);
   }
 
   if (bingdictResult?.html) {
@@ -155,7 +152,7 @@ async function showPopup(event) {
     updatePopupContent(
       session.popup,
       translationData.googleTranslation,
-      translationData.cambridgeTranslation,
+      translationData.cambridgePronunciation,
       translationData.bingdictTranslation
     );
   } catch (error) {
@@ -164,7 +161,7 @@ async function showPopup(event) {
     }
     console.error('Translation error:', error);
     if (isPopupSessionStale(session)) return;
-    updatePopupContent(session.popup, '', {}, null);
+    updatePopupContent(session.popup, '', [], null);
   } finally {
     if (currentTranslationController === session.controller) {
       currentTranslationController = null;
@@ -263,7 +260,6 @@ function resetPopupContentElements(elements, googleTranslation) {
   [elements.phoneticElementUK, elements.phoneticElementUS].forEach((element) => {
     element.style.display = 'none';
     element.onclick = null;
-    element.style.cursor = 'default';
   });
   elements.formsContainer.innerHTML = '';
   if (elements.bingdictContentElement) {
@@ -272,35 +268,23 @@ function resetPopupContentElements(elements, googleTranslation) {
   }
 }
 
-function bindPronunciationFallback(element, cambridgeTranslation, pronunciation, fallbackLang) {
-  if (!pronunciation) return;
+// 有剑桥音频就播音频，没有（或播放失败）就退回系统 TTS 朗读。
+function bindPronounceOnClick(element, word, audioUrl, ttsLang) {
   element.onclick = () => {
-    const audio = new Audio(pronunciation.url);
-    audio.play().catch(() => {
-      pronounceWord(cambridgeTranslation.word, fallbackLang);
-    });
+    if (!audioUrl) {
+      pronounceWord(word, ttsLang);
+      return;
+    }
+    new Audio(audioUrl).play().catch(() => pronounceWord(word, ttsLang));
   };
-  element.style.cursor = 'pointer';
 }
 
-function renderPopupPhonetic(
-  element,
-  label,
-  bingdictText,
-  cambridgeTranslation,
-  cambridgeLang,
-  fallbackLang
-) {
+function renderPopupPhonetic(element, label, bingdictText, word, audioUrl, ttsLang) {
   if (!bingdictText || bingdictText.length <= 3) return false;
 
   element.textContent = `${label} ${formatPhonetic(bingdictText)}`;
   element.style.display = 'inline-flex';
-
-  const cambridgeData = cambridgeTranslation || {};
-  const pronunciation = (cambridgeData.pronunciation || []).find(
-    (pron) => pron.lang === cambridgeLang
-  );
-  bindPronunciationFallback(element, cambridgeData, pronunciation, fallbackLang);
+  bindPronounceOnClick(element, word, audioUrl, ttsLang);
   return true;
 }
 
@@ -327,31 +311,22 @@ function renderWordForms(formsContainer, bingdictTranslation) {
   });
 }
 
-function renderBingdictPopupContent(elements, bingdictTranslation, cambridgeTranslation) {
+function renderBingdictPopupContent(elements, bingdictTranslation, cambridgePronunciation, word) {
   const bingDictDefinition = generateDefinitionFromJson(bingdictTranslation);
   if (bingDictDefinition && elements.bingdictContentElement) {
     elements.bingdictContentElement.innerHTML = bingDictDefinition;
     elements.bingdictContentElement.style.display = 'block';
   }
 
-  const pronunciation = bingdictTranslation.pronunciation || {};
-  const hasUkPhonetic = renderPopupPhonetic(
-    elements.phoneticElementUK,
-    'UK',
-    pronunciation.uk,
-    cambridgeTranslation,
-    'uk',
-    'en-GB'
+  const phonetic = bingdictTranslation.pronunciation || {};
+  const audioUrlOf = (lang) => cambridgePronunciation.find((pron) => pron.lang === lang)?.url;
+  const rendered = [
+    [elements.phoneticElementUK, 'UK', phonetic.uk, audioUrlOf('uk'), 'en-GB'],
+    [elements.phoneticElementUS, 'US', phonetic.us, audioUrlOf('us'), 'en-US']
+  ].map(([element, label, text, audioUrl, ttsLang]) =>
+    renderPopupPhonetic(element, label, text, word, audioUrl, ttsLang)
   );
-  const hasUsPhonetic = renderPopupPhonetic(
-    elements.phoneticElementUS,
-    'US',
-    pronunciation.us,
-    cambridgeTranslation,
-    'us',
-    'en-US'
-  );
-  if (hasUkPhonetic || hasUsPhonetic) {
+  if (rendered.some(Boolean)) {
     elements.phoneticDiv.style.display = 'block';
   }
 
@@ -378,7 +353,7 @@ function updatePopupLayoutState(popup, elements, googleTranslation) {
   });
 }
 
-function updatePopupContent(popup, googleTranslation, cambridgeTranslation, bingdictTranslation) {
+function updatePopupContent(popup, googleTranslation, cambridgePronunciation, bingdictTranslation) {
   if (!popup || activePopup !== popup) return;
 
   const popupRoot = getPopupRoot(popup);
@@ -397,7 +372,12 @@ function updatePopupContent(popup, googleTranslation, cambridgeTranslation, bing
 
   resetPopupContentElements(elements, googleTranslation);
   if (bingdictTranslation) {
-    renderBingdictPopupContent(elements, bingdictTranslation, cambridgeTranslation);
+    renderBingdictPopupContent(
+      elements,
+      bingdictTranslation,
+      cambridgePronunciation,
+      popup.dataset.word
+    );
   }
   updatePopupLayoutState(popup, elements, googleTranslation);
 }
@@ -786,7 +766,7 @@ function createPopupBody(word, hideKnownButton) {
 
 function bindPopupEvents(popup, shadow, word, hideKnownButton) {
   const titleElement = shadow.querySelector('.hlw-word-h2');
-  titleElement.addEventListener('click', () => pronounceWord(word, 'en-US'));
+  bindPronounceOnClick(titleElement, word, null, 'en-US');
 
   const knownButton = shadow.querySelector('.hlw-word-known');
   if (knownButton && !hideKnownButton) {

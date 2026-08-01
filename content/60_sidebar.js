@@ -110,6 +110,9 @@ function getSidebarShadowOverrides() {
   return `
 .hlw-word-sidebar {
   visibility: hidden !important;
+  /* 关闭态的位移必须在 styles.css 到达前就生效：否则 transform 会从 none 变成
+     translateX，被 transition 补成一段"先出现再滑走"的动画。宽度同 styles.css。 */
+  transform: translateX(320px) !important;
 }
 .hlw-word-sidebar.hlw-styles-ready {
   visibility: visible !important;

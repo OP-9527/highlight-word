@@ -1,13 +1,34 @@
-/* Root Variables */
+/* Root Variables — "浅湾 Shoal" theme.
+   变量定义不加 !important：.hlw-root 在 shadow root 里，页面样式够不着；
+   留着反而会让后续 .hlw-root[data-theme] 之类的主题覆盖失效。 */
 .hlw-root {
-  --hlw-font-sans: Arial, Helvetica, sans-serif !important;
-  --primary-color: #4a90e2 !important;
-  --secondary-color: #f5f7fa !important;
-  --text-color: #333 !important;
-  --text-light: #666 !important;
-  --border-color: #e0e0e0 !important;
-  --shadow-color: rgba(0, 0, 0, 0.1) !important;
-  --transition: all 0.3s ease !important;
+  /* 颜色 —— 换主题只需改这一组 */
+  --hlw-bg: #ffffff;
+  --hlw-surface-2: #eef2f7;
+  --hlw-surface-2-hover: #e2e9f1;
+  --hlw-field: #f5f8fb;
+  --hlw-ink: #16212b;
+  --hlw-muted: #6d7c8b;
+  --hlw-line: rgba(22, 33, 43, 0.1);
+  --hlw-line-soft: rgba(22, 33, 43, 0.07);
+  --hlw-accent: #4285f4; /* Google Blue */
+  --hlw-accent-hover: #3367d6;
+  --hlw-on-accent: #ffffff;
+  --hlw-word: #34a853; /* Google Green，与 ✅ 已知按钮同色 */
+  --hlw-track: #c9d3dd;
+  --hlw-danger: #b23a2c;
+  --hlw-danger-bg: #fbebe8;
+  --hlw-danger-bg-hover: #f6ddd8;
+  --hlw-shadow-rgb: 22, 45, 72;
+
+  /* 形状与字体 */
+  --hlw-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
+    'Helvetica Neue', Arial, sans-serif;
+  --hlw-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --hlw-radius: 14px;
+  --hlw-radius-sm: 10px;
+  --hlw-shadow: 0 18px 44px rgba(var(--hlw-shadow-rgb), 0.14);
+  --hlw-transition: all 0.3s ease;
 }
 
 /* The sidebar lives in a shadow root, so no page reset reaches it and UA
@@ -29,14 +50,14 @@
 
 /* Word Popup Styles */
 .hlw-word-popup {
-  background: #ffffff !important;
-  border-radius: 16px !important;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18) !important;
+  background: var(--hlw-bg) !important;
+  border-radius: var(--hlw-radius) !important;
+  box-shadow: var(--hlw-shadow) !important;
   padding: 14px 16px 14px !important;
   width: 380px !important;
   max-width: calc(100vw - 20px) !important;
-  border: 1px solid rgba(15, 23, 42, 0.08) !important;
-  color: #0f172a !important;
+  border: 1px solid var(--hlw-line-soft) !important;
+  color: var(--hlw-ink) !important;
   font-family: var(--hlw-font-sans) !important;
   letter-spacing: 0.1px !important;
 }
@@ -48,14 +69,15 @@
   align-items: center !important;
   gap: 12px !important;
   padding-bottom: 8px !important;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
+  border-bottom: 1px solid var(--hlw-line) !important;
 }
 
 .hlw-word-h2 {
   font-family: var(--hlw-font-sans) !important;
   font-size: 22px !important;
-  font-weight: 700 !important;
-  color: #0f9d58 !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--hlw-word) !important;
   margin: 0 !important;
   padding: 0 !important;
   cursor: pointer !important;
@@ -95,7 +117,7 @@
 }
 
 .hlw-google-translation {
-  color: #1f2937 !important;
+  color: var(--hlw-ink) !important;
   font-family: var(--hlw-font-sans) !important;
   font-size: 14px !important;
   line-height: 1.28 !important;
@@ -113,7 +135,8 @@
   gap: 12px !important;
   flex-wrap: nowrap !important;
   white-space: nowrap !important;
-  margin-top: 6px !important;
+  /* 基线对齐后不需要再往下推 */
+  margin-top: 0 !important;
   margin-bottom: 0 !important;
   flex: 0 0 auto !important;
 }
@@ -121,7 +144,8 @@
 .hlw-translation-row {
   display: flex !important;
   flex-wrap: nowrap !important;
-  align-items: flex-end !important;
+  /* 按基线对齐：音标是更小的等宽字，用 flex-end 对齐盒底会让它的基线掉到中文下面 */
+  align-items: last baseline !important;
   gap: 20px !important;
   justify-content: flex-start !important;
   flex: 1 1 100% !important;
@@ -132,7 +156,7 @@
 
 .hlw-translation-row .hlw-google-translation-container {
   display: flex !important;
-  align-items: flex-end !important;
+  align-items: last baseline !important;
   flex: 0 1 auto !important;
   min-width: 0 !important;
 }
@@ -144,26 +168,27 @@
   align-items: baseline !important;
   white-space: nowrap !important;
   flex: 0 0 auto !important;
-  font-family: var(--hlw-font-sans) !important;
-  font-size: 13px !important;
-  color: #1f2937 !important;
+  font-family: var(--hlw-font-mono) !important;
+  font-size: 12.5px !important;
+  color: var(--hlw-muted) !important;
   cursor: pointer !important;
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
 
 .hlw-definition-pos {
-  font-family: var(--hlw-font-sans) !important;
-  font-size: 13px !important;
-  color: #0f9d58 !important;
+  font-family: var(--hlw-font-mono) !important;
+  font-size: 12px !important;
+  letter-spacing: 0.04em !important;
+  color: var(--hlw-word) !important;
   font-weight: 600 !important;
-  min-width: 30px !important;
+  min-width: 32px !important;
   display: inline-block !important;
   margin-right: 6px !important;
 }
 
 .hlw-bingdict-translation-container {
-  border-top: 1px solid rgba(15, 23, 42, 0.06) !important;
+  border-top: 1px solid var(--hlw-line) !important;
   padding-top: 12px !important;
   flex-basis: 100% !important;
   text-align: left !important;
@@ -171,9 +196,9 @@
 
 .hlw-definition-content {
   font-family: var(--hlw-font-sans) !important;
-  font-size: 14px !important;
-  color: #1f2937 !important;
-  line-height: 1.28 !important;
+  font-size: 13.5px !important;
+  color: var(--hlw-ink) !important;
+  line-height: 1.35 !important;
 }
 
 .hlw-definition-text {
@@ -188,19 +213,18 @@
   margin-top: 10px !important;
   display: flex !important;
   flex-wrap: wrap !important;
-  gap: 4px !important;
+  gap: 5px !important;
   flex-basis: 100% !important;
 }
 
 .hlw-word-forms {
-  font-family: var(--hlw-font-sans) !important;
-  font-size: 12px !important;
-  color: #475569 !important;
+  font-family: var(--hlw-font-mono) !important;
+  font-size: 11.5px !important;
+  color: var(--hlw-muted) !important;
   display: inline-flex !important;
   align-items: center !important;
-  padding: 4px 8px !important;
-  background: #f1f5f9 !important;
-  border: 1px solid rgba(15, 23, 42, 0.06) !important;
+  padding: 4px 9px !important;
+  background: var(--hlw-surface-2) !important;
   border-radius: 999px !important;
 }
 
@@ -209,22 +233,26 @@
   width: 320px !important;
   height: 100vh !important;
   position: fixed !important;
-  right: -320px !important;
+  right: 0 !important;
   top: 0 !important;
-  background-color: white !important;
-  border-left: 1px solid var(--border-color) !important;
-  box-shadow: -2px 0 10px var(--shadow-color) !important;
+  background-color: var(--hlw-bg) !important;
+  color: var(--hlw-ink) !important;
+  border-left: 1px solid var(--hlw-line-soft) !important;
+  border-radius: var(--hlw-radius) 0 0 var(--hlw-radius) !important;
+  box-shadow: -18px 0 44px rgba(var(--hlw-shadow-rgb), 0.14) !important;
   overflow: hidden !important;
-  transition: var(--transition) !important;
+  /* 用 transform 滑入：right 会逐帧触发布局并重绘整条阴影带 */
+  transform: translateX(320px) !important;
+  transition: transform 0.3s ease !important;
   display: flex !important;
   flex-direction: column !important;
   z-index: 9999 !important;
-  font-family: Arial, Helvetica, sans-serif !important;
+  font-family: var(--hlw-font-sans) !important;
   font-size: 14px !important;
 }
 
 .hlw-word-sidebar.hlw-open {
-  right: 0 !important;
+  transform: translateX(0) !important;
 }
 
 /* Sidebar Content Styles */
@@ -248,16 +276,49 @@
   justify-content: space-between !important;
   align-items: center !important;
   padding: 24px 24px 0 !important;
-  transition: var(--transition) !important;
+  transition: var(--hlw-transition) !important;
 }
 
 .hlw-sidebar-title {
-  font-size: 24px !important;
-  font-weight: bold !important;
-  color: var(--text-color) !important;
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--hlw-ink) !important;
 }
 
-/* Button Styles */
+/* Button Styles —— 侧栏所有按钮共用的字体、形状与交互 */
+.hlw-vocabulary-button,
+.hlw-learned-button,
+.hlw-clear-all-button,
+.hlw-import-button,
+.hlw-export-button,
+.hlw-file-upload label {
+  font-family: var(--hlw-font-sans) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  border: none !important;
+  border-radius: var(--hlw-radius-sm) !important;
+  cursor: pointer !important;
+  transition: var(--hlw-transition) !important;
+}
+
+/* 主按钮 */
+.hlw-vocabulary-button,
+.hlw-import-button,
+.hlw-export-button,
+.hlw-file-upload label {
+  background-color: var(--hlw-accent) !important;
+  color: var(--hlw-on-accent) !important;
+}
+
+.hlw-vocabulary-button:hover,
+.hlw-import-button:hover,
+.hlw-export-button:hover,
+.hlw-file-upload label:hover {
+  background-color: var(--hlw-accent-hover) !important;
+}
+
 .hlw-button-container {
   display: flex !important;
   justify-content: space-between !important;
@@ -267,26 +328,18 @@
 
 .hlw-vocabulary-button,
 .hlw-learned-button {
-  padding: 14px !important;
-  background-color: var(--secondary-color) !important;
-  border: none !important;
-  border-radius: 12px !important;
-  cursor: pointer !important;
-  width: calc(50% - 8px) !important;
-  text-align: center !important;
+  padding: 12px !important;
+  width: calc(50% - 5px) !important;
   box-sizing: border-box !important;
-  transition: var(--transition) !important;
-  font-weight: 600 !important;
-  color: var(--text-color) !important;
-  box-shadow: 0 2px 5px var(--shadow-color) !important;
 }
 
-.hlw-vocabulary-button:hover,
+.hlw-learned-button {
+  background-color: var(--hlw-surface-2) !important;
+  color: var(--hlw-ink) !important;
+}
+
 .hlw-learned-button:hover {
-  background-color: var(--primary-color) !important;
-  color: white !important;
-  transform: translateY(-2px) !important;
-  box-shadow: 0 4px 10px var(--shadow-color) !important;
+  background-color: var(--hlw-surface-2-hover) !important;
 }
 
 /* Close Icon Styles */
@@ -295,12 +348,12 @@
   background: none !important;
   border: none !important;
   cursor: pointer !important;
-  color: var(--text-light) !important;
-  transition: var(--transition) !important;
+  color: var(--hlw-muted) !important;
+  transition: var(--hlw-transition) !important;
 }
 
 .hlw-close-icon:hover {
-  color: var(--primary-color) !important;
+  color: var(--hlw-accent) !important;
 }
 
 /* hlw-sidebar-content Header Styles */
@@ -318,14 +371,14 @@
   border: none !important;
   cursor: pointer !important;
   padding: 8px !important;
-  color: var(--text-light) !important;
-  transition: var(--transition) !important;
+  color: var(--hlw-muted) !important;
+  transition: var(--hlw-transition) !important;
   display: flex !important;
   align-items: center !important;
 }
 
 .hlw-back-button:hover {
-  color: var(--primary-color) !important;
+  color: var(--hlw-accent) !important;
 }
 
 .hlw-arrow-left {
@@ -341,9 +394,10 @@
 /* Content Typography */
 .hlw-sidebar-content h2 {
   font-size: 18px !important;
-  color: var(--text-color) !important;
+  font-weight: 600 !important;
+  color: var(--hlw-ink) !important;
   text-align: left !important;
-  background-color: white !important;
+  background-color: var(--hlw-bg) !important;
 }
 
 /* List Styles */
@@ -356,46 +410,46 @@
   overflow-y: auto !important;
 }
 
+/* 三种列表行长得一样 */
 .hlw-learned-word-item,
-.hlw-file-item {
+.hlw-file-item,
+.hlw-content-item {
   display: flex !important;
   justify-content: space-between !important;
   align-items: center !important;
   padding: 12px 0 !important;
-  border-bottom: 1px solid var(--border-color) !important;
+  border-bottom: 1px solid var(--hlw-line) !important;
 }
 
-/* Delete Button Styles */
-.hlw-delete-button {
+/* 行内的删除按钮：默认隐形，hover 行时浮现 */
+.hlw-delete-button,
+.hlw-file-item button,
+.hlw-content-item button {
   background: none !important;
   border: none !important;
-  color: var(--text-light) !important;
+  color: var(--hlw-muted) !important;
   cursor: pointer !important;
   opacity: 0 !important;
-  transition: var(--transition) !important;
+  transition: var(--hlw-transition) !important;
 }
 
-.hlw-learned-word-item:hover .hlw-delete-button {
+.hlw-learned-word-item:hover .hlw-delete-button,
+.hlw-file-item:hover button,
+.hlw-content-item:hover button {
   opacity: 1 !important;
 }
 
 /* Clear All Button Styles */
 .hlw-clear-all-button {
   margin-top: auto !important;
-  padding: 14px !important;
-  background-color: #ff4d4f !important;
-  color: white !important;
-  border: none !important;
-  border-radius: 12px !important;
-  cursor: pointer !important;
+  padding: 12px !important;
   width: 100% !important;
-  text-align: center !important;
-  font-weight: 600 !important;
-  transition: var(--transition) !important;
+  background-color: var(--hlw-danger-bg) !important;
+  color: var(--hlw-danger) !important;
 }
 
 .hlw-clear-all-button:hover {
-  background-color: #ff7875 !important;
+  background-color: var(--hlw-danger-bg-hover) !important;
 }
 
 /* File Upload Styles */
@@ -403,7 +457,7 @@
   display: flex !important;
   flex-direction: column !important;
   padding-bottom: 10px !important;
-  border-bottom: 1px solid var(--border-color) !important;
+  border-bottom: 1px solid var(--hlw-line) !important;
   width: 100% !important;
 }
 
@@ -413,69 +467,26 @@
 
 .hlw-file-upload label {
   padding: 10px 20px !important;
-  background-color: var(--primary-color) !important;
-  color: white !important;
-  border-radius: 5px !important;
-  cursor: pointer !important;
-  transition: var(--transition) !important;
-  text-align: center !important;
-}
-
-.hlw-file-upload label:hover {
-  background-color: #3a7bc8 !important;
-}
-
-/* File Item Styles */
-.hlw-file-item button {
-  background: none !important;
-  border: none !important;
-  color: var(--text-light) !important;
-  cursor: pointer !important;
-  opacity: 0 !important;
-  transition: var(--transition) !important;
-}
-
-.hlw-file-item:hover button {
-  opacity: 1 !important;
-}
-
-/* Content Item Styles */
-.hlw-content-item {
-  display: flex !important;
-  justify-content: space-between !important;
-  align-items: center !important;
-  padding: 12px 0 !important;
-  border-bottom: 1px solid var(--border-color) !important;
-}
-
-.hlw-content-item button {
-  background: none !important;
-  border: none !important;
-  color: var(--text-light) !important;
-  cursor: pointer !important;
-  opacity: 0 !important;
-  transition: var(--transition) !important;
-}
-
-.hlw-content-item:hover button {
-  opacity: 1 !important;
 }
 
 /* Search Input Styles */
 .hlw-sidebar-content .hlw-word-search {
   width: 100% !important;
-  padding: 10px !important;
+  padding: 10px 12px !important;
   margin-bottom: 10px !important;
-  border: 1px solid var(--border-color) !important;
-  border-radius: 5px !important;
-  font-size: 14px !important;
+  border: 1px solid var(--hlw-line) !important;
+  border-radius: var(--hlw-radius-sm) !important;
+  background-color: var(--hlw-field) !important;
+  color: var(--hlw-ink) !important;
+  font-family: var(--hlw-font-sans) !important;
+  font-size: 13px !important;
   box-sizing: border-box !important;
 }
 
 .hlw-word-search:focus {
   outline: none !important;
-  border-color: var(--primary-color) !important;
-  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2) !important;
+  border-color: var(--hlw-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hlw-accent) 22%, transparent) !important;
 }
 
 /* Import/Export Button Styles */
@@ -488,36 +499,19 @@
 
 .hlw-import-button,
 .hlw-export-button {
-  padding: 12px 16px !important;
-  background-color: var(--primary-color) !important;
-  color: white !important;
-  border: none !important;
-  border-radius: 8px !important;
-  cursor: pointer !important;
-  transition: var(--transition) !important;
-  font-weight: 500 !important;
-  font-size: 13px !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  padding: 11px 16px !important;
   flex: 1 !important;
   min-width: calc(50% - 5px) !important;
-  text-align: center !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-}
-
-.hlw-import-button:hover,
-.hlw-export-button:hover {
-  background-color: #3a7bc8 !important;
-  transform: translateY(-2px) !important;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
 }
 
 /* Highlight Toggle Styles */
 .hlw-highlight-toggle {
   margin-bottom: 10px !important;
   padding-bottom: 10px !important;
-  border-bottom: 1px solid var(--border-color) !important;
+  border-bottom: 1px solid var(--hlw-line) !important;
   display: flex !important;
 }
 
@@ -533,7 +527,7 @@
 .hlw-divider {
   border: none !important;
   height: 1px !important;
-  background-color: #e0e0e0 !important;
+  background-color: var(--hlw-line) !important;
   margin: 8px 0 !important;
 }
 
@@ -546,8 +540,8 @@
 }
 
 .hlw-permission-text {
-  color: #333 !important;
-  font-size: 14px !important;
+  color: var(--hlw-ink) !important;
+  font-size: 13px !important;
 }
 
 /* Switch Button Styles */
@@ -555,7 +549,8 @@
   position: relative !important;
   display: inline-block !important;
   width: 40px !important;
-  height: 20px !important;
+  height: 21px !important;
+  flex: 0 0 auto !important;
 }
 
 .hlw-site-highlight-switch input {
@@ -571,18 +566,18 @@
   left: 0 !important;
   right: 0 !important;
   bottom: 0 !important;
-  background-color: #ccc !important;
+  background-color: var(--hlw-track) !important;
   transition: 0.4s !important;
 }
 
 .hlw-sidebar-slider:before {
   position: absolute !important;
   content: '' !important;
-  height: 16px !important;
-  width: 16px !important;
+  height: 17px !important;
+  width: 17px !important;
   left: 2px !important;
   bottom: 2px !important;
-  background-color: white !important;
+  background-color: var(--hlw-on-accent) !important;
   transition: 0.4s !important;
 }
 
@@ -595,9 +590,9 @@
 }
 
 .hlw-site-highlight-switch input:checked + .hlw-sidebar-slider {
-  background-color: #2196f3 !important;
+  background-color: var(--hlw-accent) !important;
 }
 
 .hlw-site-highlight-switch input:checked + .hlw-sidebar-slider:before {
-  transform: translateX(20px) !important;
+  transform: translateX(19px) !important;
 }
