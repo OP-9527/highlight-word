@@ -20,6 +20,13 @@ function getSidebarMarkup() {
         </div>
       </div>
       <hr class="hlw-divider">
+      <div class="hlw-font-setting">
+        <hr class="hlw-divider">
+        <div class="hlw-permission-control">
+          <span class="hlw-permission-text">Word card font</span>
+          <select class="hlw-font-select" id="fontSelect"></select>
+        </div>
+      </div>
     </div>
     <div class="hlw-sidebar-content hlw-vocabulary">
       <div class="hlw-content-header">
@@ -93,6 +100,20 @@ function bindSidebarEvents() {
   sitePermission.addEventListener('change', toggleSitePermission);
   getCurrentSitePermission().then((isEnabled) => {
     sitePermission.checked = isEnabled;
+  });
+
+  const fontSelect = sidebarById('fontSelect');
+  POPUP_FONT_OPTIONS.forEach(({ label, value }) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    option.style.fontFamily = value;
+    fontSelect.appendChild(option);
+  });
+  fontSelect.addEventListener('change', changePopupFont);
+  chrome.storage.local.get(['popupFont'], (result) => {
+    if (hasChromeStorageLastError('Error loading popup font')) return;
+    fontSelect.value = result.popupFont || '';
   });
 
   const fileList = sidebarById('fileList');
@@ -666,6 +687,13 @@ function toggleHighlight(event) {
         checkbox.checked = false;
       });
     }
+  });
+}
+
+// 存储监听器（本标签页也会收到）负责把字体应用到卡片上
+function changePopupFont(event) {
+  chrome.storage.local.set({ popupFont: event.target.value }, () => {
+    hasChromeStorageLastError('Error saving popup font');
   });
 }
 

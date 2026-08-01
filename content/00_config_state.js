@@ -40,6 +40,14 @@ const SELECTION_ICON_Z_INDEX = '100000';
 const SELECTION_ICON_FALLBACK_FONT_SIZE_PX = 12;
 const SELECTION_ICON_BACKGROUND = '#4285f4'; // 与 styles.css 的 --hlw-accent 保持一致
 const WORD_SEARCH_DEBOUNCE_MS = 150;
+// 单词卡片字体：空 value 表示沿用 styles.css 的 --hlw-font-sans
+const POPUP_FONT_OPTIONS = [
+  { label: 'System Default', value: '' },
+  { label: 'Serif', value: "Georgia, 'Times New Roman', serif" },
+  { label: 'Helvetica', value: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
+  { label: 'Verdana', value: "Verdana, Geneva, sans-serif" },
+  { label: 'Monospace', value: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace" }
+];
 
 // Runtime state
 let highlights = new Map();
@@ -54,6 +62,7 @@ let knownWordsSaveCallbacks = [];
 let selectionIcon = null;
 let selectionTimeout = null;
 let isMouseDown = false;
+let popupFontFamily = '';
 let popupStylesText = null;
 let popupStylesPromise = null;
 let currentPopupRequestId = 0;

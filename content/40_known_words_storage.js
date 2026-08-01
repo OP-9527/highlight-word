@@ -388,6 +388,11 @@ function setupStorageChangedListener() {
         return;
       }
 
+      if (Object.prototype.hasOwnProperty.call(changes, 'popupFont')) {
+        applyPopupFont(changes.popupFont.newValue || '');
+        return;
+      }
+
       if (hasLocalHighlightSettingsChange(changes) && siteEnabled) {
         updateHighlights();
       }
@@ -425,6 +430,11 @@ function initialize() {
   }
   cleanup();
   initializeHighlighter();
+
+  chrome.storage.local.get(['popupFont'], (result) => {
+    if (hasChromeStorageLastError('Error loading popup font')) return;
+    popupFontFamily = result.popupFont || '';
+  });
 
   loadKnownWords(() => {
     if (isTopLevelFrame()) {

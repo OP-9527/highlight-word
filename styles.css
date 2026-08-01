@@ -549,6 +549,29 @@
   font-size: 13px !important;
 }
 
+/* Word Card Font Select —— margin-top:auto 把它压到侧栏底部 */
+.hlw-font-setting {
+  margin-top: auto !important;
+}
+
+.hlw-font-select {
+  max-width: 55% !important;
+  padding: 7px 10px !important;
+  border: 1px solid var(--hlw-line) !important;
+  border-radius: var(--hlw-radius-sm) !important;
+  background-color: var(--hlw-field) !important;
+  color: var(--hlw-ink) !important;
+  font-family: var(--hlw-font-sans) !important;
+  font-size: 13px !important;
+  cursor: pointer !important;
+}
+
+.hlw-font-select:focus {
+  outline: none !important;
+  border-color: var(--hlw-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hlw-accent) 22%, transparent) !important;
+}
+
 /* Switch Button Styles */
 .hlw-site-highlight-switch {
   position: relative !important;

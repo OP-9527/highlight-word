@@ -731,9 +731,28 @@ function getPopupShadowOverrides() {
   `.trim();
 }
 
+// 卡片字体只改 --hlw-font-sans（音标仍保持等宽），弹窗在 shadow root 里，
+// 只能靠内联变量覆盖 styles.css。
+function applyPopupFont(fontFamily) {
+  popupFontFamily = fontFamily || '';
+  const popupBody =
+    activePopup && activePopup.shadowRoot
+      ? activePopup.shadowRoot.querySelector('.hlw-word-popup')
+      : null;
+  if (!popupBody) return;
+  if (popupFontFamily) {
+    popupBody.style.setProperty('--hlw-font-sans', popupFontFamily);
+  } else {
+    popupBody.style.removeProperty('--hlw-font-sans');
+  }
+}
+
 function createPopupBody(word, hideKnownButton) {
   const popupBody = document.createElement('div');
   popupBody.className = 'hlw-root hlw-word-popup';
+  if (popupFontFamily) {
+    popupBody.style.setProperty('--hlw-font-sans', popupFontFamily);
+  }
   if (hideKnownButton) {
     popupBody.classList.add('hlw-hide-known');
   }
