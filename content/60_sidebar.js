@@ -60,56 +60,101 @@ function getSidebarMarkup() {
   `;
 }
 
+// The sidebar lives in a shadow root, so page CSS cannot reach it; every lookup
+// has to be scoped to that root instead of the document.
+function sidebarById(id) {
+  return sidebarRoot ? sidebarRoot.getElementById(id) : null;
+}
+
+function sidebarQuery(selector) {
+  return sidebarRoot ? sidebarRoot.querySelector(selector) : null;
+}
+
+function sidebarQueryAll(selector) {
+  return sidebarRoot ? sidebarRoot.querySelectorAll(selector) : [];
+}
+
 function bindSidebarEvents() {
-  document.getElementById('closeSidebar').addEventListener('click', toggleSidebar);
-  document
-    .getElementById('vocabularyButton')
-    .addEventListener('click', () => showContent('hlw-vocabulary'));
-  document
-    .getElementById('learnedButton')
-    .addEventListener('click', () => showContent('hlw-learned'));
-  document
-    .getElementById('vocabularyBackButton')
-    .addEventListener('click', () => showContent('hlw-sidebar-main'));
-  document
-    .getElementById('learnedBackButton')
-    .addEventListener('click', () => showContent('hlw-sidebar-main'));
-  document.getElementById('clearAllButton').addEventListener('click', clearAllWords);
-  document
-    .getElementById('fileContentBackButton')
-    .addEventListener('click', () => showContent('hlw-vocabulary'));
+  sidebarById('closeSidebar').addEventListener('click', toggleSidebar);
+  sidebarById('vocabularyButton').addEventListener('click', () => showContent('hlw-vocabulary'));
+  sidebarById('learnedButton').addEventListener('click', () => showContent('hlw-learned'));
+  sidebarById('vocabularyBackButton').addEventListener('click', () => showContent('hlw-sidebar-main'));
+  sidebarById('learnedBackButton').addEventListener('click', () => showContent('hlw-sidebar-main'));
+  sidebarById('clearAllButton').addEventListener('click', clearAllWords);
+  sidebarById('fileContentBackButton').addEventListener('click', () => showContent('hlw-vocabulary'));
 
-  document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+  sidebarById('fileInput').addEventListener('change', handleFileUpload);
 
-  const highlightToggle = document.getElementById('highlightToggle');
+  const highlightToggle = sidebarById('highlightToggle');
   highlightToggle.checked = true;
   highlightToggle.addEventListener('change', toggleHighlight);
 
-  const sitePermission = document.getElementById('sitePermission');
+  const sitePermission = sidebarById('sitePermission');
   sitePermission.addEventListener('change', toggleSitePermission);
   getCurrentSitePermission().then((isEnabled) => {
     sitePermission.checked = isEnabled;
   });
 
-  const fileList = document.getElementById('fileList');
+  const fileList = sidebarById('fileList');
   fileList.addEventListener('change', handleFileListChange);
   fileList.addEventListener('click', handleFileListClick);
 
-  document.getElementById('fileContent').addEventListener('click', handleFileContentClick);
+  sidebarById('fileContent').addEventListener('click', handleFileContentClick);
+}
+
+// Inline styles outrank page rules; a :host rule would lose to them, and the
+// panel itself is fixed-positioned, so the host only needs to be a neutral anchor.
+const SIDEBAR_HOST_STYLE = `all: initial; position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: ${POPUP_Z_INDEX};`;
+
+function getSidebarShadowOverrides() {
+  return `
+.hlw-word-sidebar {
+  visibility: hidden !important;
+}
+.hlw-word-sidebar.hlw-styles-ready {
+  visibility: visible !important;
+}
+  `.trim();
+}
+
+// styles.css arrives asynchronously; keep the sidebar hidden until it lands so a
+// bare, unstyled panel never flashes over the page.
+function injectSidebarStyles(shadow, style) {
+  const overrides = getSidebarShadowOverrides();
+  getPopupStylesText().then((text) => {
+    if (!text || !shadow.isConnected) return;
+    style.textContent = `${text}\n${overrides}`;
+    const sidebar = shadow.querySelector('.hlw-word-sidebar');
+    if (sidebar) sidebar.classList.add('hlw-styles-ready');
+  });
 }
 
 function createSidebar() {
   if (!isTopLevelFrame()) {
     return;
   }
-  if (document.querySelector('.hlw-word-sidebar')) {
-    return;
+  if (sidebarRoot) {
+    if (sidebarRoot.host.isConnected) return;
+    sidebarRoot = null;
   }
+
+  const host = document.createElement('div');
+  host.className = 'hlw-word-sidebar-host';
+  host.style.cssText = SIDEBAR_HOST_STYLE;
+  const shadow = host.attachShadow({ mode: 'open' });
+
+  const style = document.createElement('style');
+  style.textContent = getSidebarShadowOverrides();
+  shadow.appendChild(style);
 
   const sidebar = document.createElement('div');
   sidebar.className = 'hlw-root hlw-word-sidebar';
   sidebar.innerHTML = getSidebarMarkup();
-  document.body.appendChild(sidebar);
+  shadow.appendChild(sidebar);
+
+  document.body.appendChild(host);
+  sidebarRoot = shadow;
+  injectSidebarStyles(shadow, style);
 
   bindSidebarEvents();
   renderFileList();
@@ -211,7 +256,7 @@ function handleFileListClick(event) {
 }
 
 function renderFileList() {
-  const fileList = document.getElementById('fileList');
+  const fileList = sidebarById('fileList');
   if (!fileList) return;
   fileList.innerHTML = '';
 
@@ -232,7 +277,7 @@ function renderFileList() {
       }
 
       // 设置 highlight toggle 的状态
-      const highlightToggleCheckbox = document.getElementById('highlightToggle');
+      const highlightToggleCheckbox = sidebarById('highlightToggle');
       if (highlightToggleCheckbox) {
         highlightToggleCheckbox.checked = result.highlightToggle;
       }
@@ -275,13 +320,10 @@ function toggleSidebar() {
   if (!isTopLevelFrame()) {
     return;
   }
-  let sidebar = document.querySelector('.hlw-word-sidebar');
-
   // 如果侧边栏不存在，创建它
-  if (!sidebar) {
-    createSidebar();
-    sidebar = document.querySelector('.hlw-word-sidebar');
-  }
+  createSidebar();
+  const sidebar = sidebarQuery('.hlw-word-sidebar');
+  if (!sidebar) return;
 
   sidebarOpen = !sidebarOpen;
   sidebar.classList.toggle('hlw-open', sidebarOpen);
@@ -300,11 +342,11 @@ try {
 }
 
 function showContent(contentId) {
-  const contents = document.querySelectorAll('.hlw-sidebar-content');
+  const contents = sidebarQueryAll('.hlw-sidebar-content');
   contents.forEach((content) => content.classList.remove('hlw-active'));
-  document.querySelector(`.hlw-sidebar-content.${contentId}`).classList.add('hlw-active');
+  sidebarQuery(`.hlw-sidebar-content.${contentId}`).classList.add('hlw-active');
 
-  const sidebarHeader = document.querySelector('.hlw-sidebar-header');
+  const sidebarHeader = sidebarQuery('.hlw-sidebar-header');
   if (contentId === 'hlw-sidebar-main') {
     sidebarHeader.style.display = 'flex';
   } else {
@@ -317,7 +359,7 @@ function showContent(contentId) {
 }
 
 function ensureWordListToolbar(wordList) {
-  let buttonContainer = document.querySelector('.hlw-word-list-buttons');
+  let buttonContainer = sidebarQuery('.hlw-word-list-buttons');
   if (!buttonContainer) {
     buttonContainer = document.createElement('div');
     buttonContainer.className = 'hlw-word-list-buttons';
@@ -344,7 +386,7 @@ function ensureWordListToolbar(wordList) {
 }
 
 function ensureWordSearchBox(wordList) {
-  let searchBox = document.querySelector('.hlw-word-search');
+  let searchBox = sidebarQuery('.hlw-word-search');
   if (!searchBox) {
     searchBox = document.createElement('input');
     searchBox.type = 'text';
@@ -360,8 +402,8 @@ function renderWordList() {
   // The list is invisible while the sidebar is closed; toggleSidebar re-renders
   // on open, so skipping here avoids rebuilding a large hidden DOM list.
   if (!sidebarOpen) return;
-  const wordList = document.getElementById('wordList');
-  const knownWordHeader = document.querySelector('.hlw-sidebar-content.hlw-learned h2');
+  const wordList = sidebarById('wordList');
+  const knownWordHeader = sidebarQuery('.hlw-sidebar-content.hlw-learned h2');
   if (!wordList || !knownWordHeader) return;
 
   knownWordHeader.textContent = `Known Words (${knownWords.size})`;
@@ -411,7 +453,7 @@ function importKnownWords() {
 }
 
 function renderFilteredWords(filter = '') {
-  const wordList = document.getElementById('wordList');
+  const wordList = sidebarById('wordList');
   wordList.innerHTML = '';
 
   const fragment = document.createDocumentFragment();
@@ -546,7 +588,7 @@ function showFileContent(fileIndex) {
         .filter((item) => item.line.trim() !== '');
 
       // Update the existing file content view
-      const fileContentView = document.querySelector('.hlw-sidebar-content.hlw-file-content');
+      const fileContentView = sidebarQuery('.hlw-sidebar-content.hlw-file-content');
       if (!fileContentView) return;
       fileContentView.querySelector('h2').textContent = fileInfo.name;
       const fileContentList = fileContentView.querySelector('#fileContent');
@@ -617,7 +659,7 @@ function toggleHighlight(event) {
     }
     if (isChecked) {
       // 取消所有文件的选择
-      document.querySelectorAll('.hlw-file-checkbox').forEach((checkbox) => {
+      sidebarQueryAll('.hlw-file-checkbox').forEach((checkbox) => {
         checkbox.checked = false;
       });
     }
@@ -640,7 +682,7 @@ function toggleFileSelection(event) {
     // 如果选择了文件，需要关闭 highlight all
     if (isChecked) {
       // 取消 highlight all 选项
-      const highlightToggle = document.getElementById('highlightToggle');
+      const highlightToggle = sidebarById('highlightToggle');
       if (highlightToggle && highlightToggle.checked) {
         highlightToggle.checked = false;
       }

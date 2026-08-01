@@ -10,6 +10,18 @@
   --transition: all 0.3s ease !important;
 }
 
+/* The sidebar lives in a shadow root, so no page reset reaches it and UA
+   defaults (content-box sizing, h1/h2 margins) leak into the layout. */
+.hlw-word-sidebar,
+.hlw-word-sidebar * {
+  box-sizing: border-box !important;
+}
+
+.hlw-word-sidebar h1,
+.hlw-word-sidebar h2 {
+  margin: 0 !important;
+}
+
 /* Highlight Styles */
 ::highlight(wh-unknown) {
   color: rgba(242, 95, 22, 0.893) !important;
@@ -235,8 +247,7 @@
   display: flex !important;
   justify-content: space-between !important;
   align-items: center !important;
-  padding: 18px !important;
-  margin-left: 25px !important;
+  padding: 24px 24px 0 !important;
   transition: var(--transition) !important;
 }
 
@@ -251,7 +262,7 @@
   display: flex !important;
   justify-content: space-between !important;
   margin-bottom: 20px !important;
-  width: 280px !important;
+  width: 100% !important;
 }
 
 .hlw-vocabulary-button,

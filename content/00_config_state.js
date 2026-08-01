@@ -178,6 +178,7 @@ const RICH_EDITOR_CONTEXT = {
   iframeHints: ['editor', 'evernote', 'docs', 'kix', 'compose']
 };
 let sidebarOpen = false;
+let sidebarRoot = null;
 const ENGLISH_WORD_PATTERN = /\b[a-zA-Z]{2,}\b/g;
 let unknownHL;
 let observer = null;

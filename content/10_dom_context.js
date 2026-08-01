@@ -326,7 +326,11 @@ function isExtensionUiNode(node) {
   }
 
   if (typeof element.closest === 'function') {
-    if (element.closest('.hlw-word-popup-host, .hlw-word-sidebar, .selection-icon')) {
+    if (
+      element.closest(
+        '.hlw-word-popup-host, .hlw-word-sidebar-host, .hlw-word-sidebar, .selection-icon'
+      )
+    ) {
       return true;
     }
   }
@@ -336,7 +340,8 @@ function isExtensionUiNode(node) {
     root &&
     root.host &&
     root.host.classList &&
-    root.host.classList.contains('hlw-word-popup-host')
+    (root.host.classList.contains('hlw-word-popup-host') ||
+      root.host.classList.contains('hlw-word-sidebar-host'))
   );
 }
 

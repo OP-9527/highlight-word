@@ -349,7 +349,7 @@ function cleanup() {
 function applyCurrentSitePermission(disabledSites = []) {
   const currentHost = window.location.hostname;
   const isEnabled = !disabledSites.includes(currentHost);
-  const sitePermission = isTopLevelFrame() ? document.getElementById('sitePermission') : null;
+  const sitePermission = isTopLevelFrame() ? sidebarById('sitePermission') : null;
 
   if (sitePermission) {
     sitePermission.checked = isEnabled;
