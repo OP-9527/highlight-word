@@ -10,7 +10,7 @@
   --hlw-ink: #16212b;
   --hlw-muted: #6d7c8b;
   --hlw-line: rgba(22, 33, 43, 0.1);
-  --hlw-line-soft: rgba(22, 33, 43, 0.07);
+  --hlw-line-soft: rgba(22, 33, 43, 0.1);
   --hlw-accent: #4285f4; /* Google Blue */
   --hlw-accent-hover: #3367d6;
   --hlw-on-accent: #ffffff;
@@ -27,7 +27,10 @@
   --hlw-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --hlw-radius: 14px;
   --hlw-radius-sm: 10px;
-  --hlw-shadow: 0 18px 44px rgba(var(--hlw-shadow-rgb), 0.14);
+  /* 三层：贴边的接触阴影勾出边界，中层给厚度，外层是弥散的环境光 */
+  --hlw-shadow: 0 1px 2px rgba(var(--hlw-shadow-rgb), 0.1),
+    0 6px 14px rgba(var(--hlw-shadow-rgb), 0.1),
+    0 18px 44px rgba(var(--hlw-shadow-rgb), 0.16);
   --hlw-transition: all 0.3s ease;
 }
 
@@ -239,7 +242,9 @@
   color: var(--hlw-ink) !important;
   border-left: 1px solid var(--hlw-line-soft) !important;
   border-radius: var(--hlw-radius) 0 0 var(--hlw-radius) !important;
-  box-shadow: -18px 0 44px rgba(var(--hlw-shadow-rgb), 0.14) !important;
+  box-shadow: -1px 0 2px rgba(var(--hlw-shadow-rgb), 0.1),
+    -6px 0 14px rgba(var(--hlw-shadow-rgb), 0.1),
+    -18px 0 44px rgba(var(--hlw-shadow-rgb), 0.16) !important;
   overflow: hidden !important;
   /* 用 transform 滑入：right 会逐帧触发布局并重绘整条阴影带 */
   transform: translateX(320px) !important;
