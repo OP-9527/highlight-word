@@ -234,6 +234,7 @@
 /* Sidebar Styles */
 .hlw-word-sidebar {
   width: 320px !important;
+  box-sizing: border-box !important;
   height: 100vh !important;
   position: fixed !important;
   right: 0 !important;
@@ -242,13 +243,10 @@
   color: var(--hlw-ink) !important;
   border-left: 1px solid var(--hlw-line-soft) !important;
   border-radius: var(--hlw-radius) 0 0 var(--hlw-radius) !important;
-  box-shadow: -1px 0 2px rgba(var(--hlw-shadow-rgb), 0.1),
-    -6px 0 14px rgba(var(--hlw-shadow-rgb), 0.1),
-    -18px 0 44px rgba(var(--hlw-shadow-rgb), 0.16) !important;
   overflow: hidden !important;
   /* 用 transform 滑入：right 会逐帧触发布局并重绘整条阴影带 */
   transform: translateX(320px) !important;
-  transition: transform 0.3s ease !important;
+  transition: transform 0.3s ease, box-shadow 0.3s ease !important;
   display: flex !important;
   flex-direction: column !important;
   z-index: 9999 !important;
@@ -256,8 +254,12 @@
   font-size: 14px !important;
 }
 
+/* 阴影只在展开时给：侧栏收起后仍在视口右侧，阴影会向左溢出成一条灰带 */
 .hlw-word-sidebar.hlw-open {
   transform: translateX(0) !important;
+  box-shadow: -1px 0 2px rgba(var(--hlw-shadow-rgb), 0.1),
+    -6px 0 14px rgba(var(--hlw-shadow-rgb), 0.1),
+    -18px 0 44px rgba(var(--hlw-shadow-rgb), 0.16) !important;
 }
 
 /* Sidebar Content Styles */
