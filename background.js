@@ -150,7 +150,57 @@ async function getAllTranslations(word) {
   return results;
 }
 
+// storeWeb 已知单词同步。内容脚本的 fetch 用的是页面来源，会被 CORS 拦下；只有 service
+// worker 能凭 host_permissions 直连，所以这条路必须从这里走。
+const STOREWEB_REQUEST_TIMEOUT_MS = 8000;
+
+function getStorewebConfig() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['storewebUrl', 'storewebToken'], (result) => {
+      resolve({
+        url: String(result.storewebUrl || '')
+          .trim()
+          .replace(/\/+$/, ''),
+        token: String(result.storewebToken || '')
+      });
+    });
+  });
+}
+
+// body 为空是 GET 拉全量，否则 POST {add|remove|clear}；两种都返回服务端的完整词表。
+async function callStorewebKnownWords(body) {
+  const { url, token } = await getStorewebConfig();
+  if (!url) return { error: 'storeWeb address is not set' };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), STOREWEB_REQUEST_TIMEOUT_MS);
+
+  try {
+    const headers = { 'X-Known-Words-Token': token };
+    if (body) headers['Content-Type'] = 'application/json';
+    const response = await fetch(`${url}/api/rss/known-words`, {
+      method: body ? 'POST' : 'GET',
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return { error: data.error || `HTTP ${response.status}` };
+    return { words: Array.isArray(data.words) ? data.words : [] };
+  } catch (error) {
+    if (error && error.name === 'AbortError') return { error: 'Request timed out' };
+    return { error: 'Cannot reach storeWeb' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'storewebKnownWords') {
+    callStorewebKnownWords(request.body).then(sendResponse);
+    return true;
+  }
+
   if (request.action === 'translate') {
     getAllTranslations(request.word)
       .then((results) => {

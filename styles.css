@@ -574,6 +574,54 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--hlw-accent) 22%, transparent) !important;
 }
 
+/* storeWeb Sync —— 关闭时只留一行开关，展开后才出现地址和令牌 */
+.hlw-storeweb-setting {
+  padding-bottom: 7px !important;
+}
+
+.hlw-storeweb-fields {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  margin-top: 8px !important;
+}
+
+/* display:flex 带 !important，hidden 属性单靠 UA 样式压不住它 */
+.hlw-storeweb-fields[hidden] {
+  display: none !important;
+}
+
+.hlw-storeweb-input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 7px 10px !important;
+  border: 1px solid var(--hlw-line) !important;
+  border-radius: var(--hlw-radius-sm) !important;
+  background-color: var(--hlw-field) !important;
+  color: var(--hlw-ink) !important;
+  font-family: var(--hlw-font-sans) !important;
+  font-size: 13px !important;
+}
+
+.hlw-storeweb-input:focus {
+  outline: none !important;
+  border-color: var(--hlw-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hlw-accent) 22%, transparent) !important;
+}
+
+.hlw-storeweb-status {
+  margin: 0 !important;
+  color: var(--hlw-muted) !important;
+  font-family: var(--hlw-font-sans) !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  overflow-wrap: anywhere !important;
+}
+
+.hlw-storeweb-status-error {
+  color: var(--hlw-danger) !important;
+}
+
 /* Switch Button Styles */
 .hlw-site-highlight-switch {
   position: relative !important;

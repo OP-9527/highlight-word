@@ -56,13 +56,16 @@
     "https://translate.googleapis.com/*",
     "https://dictionary.cambridge.org/*",
     "https://bing.com/*",
-    "https://www.bing.com/*"
+    "https://www.bing.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*/*"
   ],
   "manifest_version": 3,
   "name": "English Word Highlighter",
   "permissions": ["storage", "activeTab"],
   "update_url": "https://clients2.google.com/service/update2/crx",
-  "version": "1.30",
+  "version": "1.31",
   "web_accessible_resources": [
     {
       "matches": ["\u003Call_urls>"],

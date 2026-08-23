@@ -27,6 +27,23 @@ function getSidebarMarkup() {
           <select class="hlw-font-select" id="fontSelect"></select>
         </div>
       </div>
+      <div class="hlw-storeweb-setting">
+        <hr class="hlw-divider">
+        <div class="hlw-permission-control">
+          <span class="hlw-permission-text">Sync with storeWeb</span>
+          <label class="hlw-site-highlight-switch">
+            <input type="checkbox" id="storewebToggle">
+            <span class="hlw-sidebar-slider hlw-round"></span>
+          </label>
+        </div>
+        <div class="hlw-storeweb-fields" id="storewebFields" hidden>
+          <input class="hlw-storeweb-input" id="storewebUrl" type="url"
+                 placeholder="http://localhost:3000" spellcheck="false" autocomplete="off">
+          <input class="hlw-storeweb-input" id="storewebToken" type="password"
+                 placeholder="KNOWN_WORDS_TOKEN" spellcheck="false" autocomplete="off">
+          <p class="hlw-storeweb-status" id="storewebStatus"></p>
+        </div>
+      </div>
     </div>
     <div class="hlw-sidebar-content hlw-vocabulary">
       <div class="hlw-content-header">
@@ -114,6 +131,18 @@ function bindSidebarEvents() {
   chrome.storage.local.get(['popupFont'], (result) => {
     if (hasChromeStorageLastError('Error loading popup font')) return;
     fontSelect.value = result.popupFont || '';
+  });
+
+  const storewebToggle = sidebarById('storewebToggle');
+  storewebToggle.addEventListener('change', toggleStorewebSync);
+  sidebarById('storewebUrl').addEventListener('change', changeStorewebField);
+  sidebarById('storewebToken').addEventListener('change', changeStorewebField);
+  chrome.storage.local.get(['storewebSyncEnabled', 'storewebUrl', 'storewebToken'], (result) => {
+    if (hasChromeStorageLastError('Error loading storeWeb sync settings')) return;
+    storewebToggle.checked = Boolean(result.storewebSyncEnabled);
+    sidebarById('storewebUrl').value = result.storewebUrl || '';
+    sidebarById('storewebToken').value = result.storewebToken || '';
+    setStorewebFieldsVisible(storewebToggle.checked);
   });
 
   const fileList = sidebarById('fileList');
@@ -694,6 +723,50 @@ function toggleHighlight(event) {
 function changePopupFont(event) {
   chrome.storage.local.set({ popupFont: event.target.value }, () => {
     hasChromeStorageLastError('Error saving popup font');
+  });
+}
+
+function setStorewebFieldsVisible(visible) {
+  const fields = sidebarById('storewebFields');
+  if (fields) fields.hidden = !visible;
+}
+
+function setStorewebStatus(text, isError = false) {
+  const status = sidebarById('storewebStatus');
+  if (!status) return;
+  status.textContent = text;
+  status.classList.toggle('hlw-storeweb-status-error', isError);
+}
+
+function syncWithStorewebAndReport() {
+  setStorewebStatus('Connecting…');
+  mergeKnownWordsWithStoreweb((error, count) => {
+    setStorewebStatus(error || `Synced · ${count} words`, Boolean(error));
+  });
+}
+
+function toggleStorewebSync(event) {
+  const enabled = event.target.checked;
+  setStorewebFieldsVisible(enabled);
+  storewebSyncEnabled = enabled;
+  // 地址或令牌可能已经换过，旧基线一律作废。
+  storewebPushedWords = null;
+
+  chrome.storage.local.set({ storewebSyncEnabled: enabled }, () => {
+    if (hasChromeStorageLastError('Error saving storeWeb sync setting')) return;
+    if (enabled) {
+      syncWithStorewebAndReport();
+    } else {
+      setStorewebStatus('');
+    }
+  });
+}
+
+function changeStorewebField(event) {
+  const key = event.target.id === 'storewebUrl' ? 'storewebUrl' : 'storewebToken';
+  chrome.storage.local.set({ [key]: event.target.value.trim() }, () => {
+    if (hasChromeStorageLastError(`Error saving ${key}`)) return;
+    if (storewebSyncEnabled) syncWithStorewebAndReport();
   });
 }
 

@@ -23,6 +23,10 @@ const ADD_KNOWN_WORD_SAVE_DELAY_MS = 100;
 const STORAGE_LOAD_RETRY_DELAY_MS = 300;
 const STORAGE_LOAD_MAX_RETRIES = 3;
 const WORD_COUNT_MISMATCH_WARNING_THRESHOLD = 10;
+// storeWeb 同步（默认关闭）：已知单词改为读写 storeWeb 的 /api/rss/known-words，与网页端
+// 共用 Drive 上的同一份文件。开启后服务端是真相来源，chrome.storage.sync 退化成离线副本。
+// 服务端只收 ^[a-z]{2,40}$，一个不合规的词会让整次请求 400，所以推送前先筛。
+const STOREWEB_WORD_PATTERN = /^[a-z]{2,40}$/;
 const DEFAULT_POINT_HIT_FONT_SIZE_PX = 14;
 const POINT_HIT_MIN_INSET_X_PX = 1;
 const POINT_HIT_MAX_INSET_X_PX = 4;
@@ -58,6 +62,10 @@ let currentTranslationController = null;
 let knownWordsSyncWriteDepth = 0;
 let knownWordsSaveInProgress = false;
 let knownWordsSaveQueued = false;
+let storewebSyncEnabled = false;
+// 服务端确认过的词表。null 表示还没成功拉取过，此时禁止推送 —— 否则一次失败的加载
+// 会拿一份不完整的本地列表覆盖掉服务端的词。
+let storewebPushedWords = null;
 let knownWordsSaveCallbacks = [];
 let selectionIcon = null;
 let selectionTimeout = null;
