@@ -23,6 +23,7 @@
         "content/90_bootstrap.js"
       ],
       "exclude_matches": [
+        "*://*.linkedin.com/*",
         "*://*.youtube.com/live_chat*",
         "*://*.youtube.com/live_chat_replay*"
       ],
@@ -42,6 +43,7 @@
         "content/90_bootstrap.js"
       ],
       "matches": [
+        "*://*.linkedin.com/*",
         "*://*.youtube.com/live_chat*",
         "*://*.youtube.com/live_chat_replay*"
       ],
@@ -65,7 +67,7 @@
   "name": "English Word Highlighter",
   "permissions": ["storage", "activeTab"],
   "update_url": "https://clients2.google.com/service/update2/crx",
-  "version": "1.31",
+  "version": "1.32",
   "web_accessible_resources": [
     {
       "matches": ["\u003Call_urls>"],

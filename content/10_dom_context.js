@@ -371,7 +371,12 @@ function isYouTubeLiveChatFrame() {
 }
 
 function shouldRunInCurrentFrame() {
-  return isTopLevelFrame() || isYouTubeLiveChatFrame();
+  // LinkedIn's Messaging navigation can render inside its /preload/ iframe.
+  return (
+    isTopLevelFrame() ||
+    isYouTubeLiveChatFrame() ||
+    /(^|\.)linkedin\.com$/.test(window.location.hostname)
+  );
 }
 
 function getContextElement(node) {
